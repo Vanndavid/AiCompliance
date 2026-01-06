@@ -1,25 +1,70 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
+import fs from "fs";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// Initialize Gemini
-const apiKey = process.env.GEMINI_API_KEY || "";
-const genAI = new GoogleGenerativeAI(apiKey);
+// The new SDK automatically picks up GEMINI_API_KEY from process.env
+const ai = new GoogleGenAI({});
 
-export const analyzeText = async (promptText: string) => {
-  if (!apiKey) throw new Error("GEMINI_API_KEY is missing in .env");
-
+export const analyzeDocument = async (filePath: string, mimeType: string) => {
   try {
-    // Use the fast 'gemini-pro' model for text
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // Use the latest stable model
+    const modelId = "gemini-2.5-flash"; 
 
-    const result = await model.generateContent(promptText);
-    const response = await result.response;
+    console.log(`Using Gemini Model: ${modelId}`);
+
+    // Read file and convert to base64
+    const fileBuffer = fs.readFileSync(filePath);
+    const base64Data = fileBuffer.toString("base64");
+
+    const prompt = `
+      You are a strict Compliance Officer. Analyze this image.
+      
+      Task:
+      1. Identify the Document Type (e.g., White Card, Driver License).
+      2. Extract the Expiry Date (YYYY-MM-DD).
+      3. Extract the License Number.
+      4. Extract the Name.
+      
+      Output ONLY raw JSON. No markdown.
+      Structure: { "type": "string", "expiryDate": "string", "licenseNumber": "string", "name": "string", "confidence": number }
+    `;
+
+    // New SDK syntax for generating content
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data,
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json", // Force JSON output
+      },
+    });
+
+    // The new SDK returns the text directly via .text() or raw structure
+    const text = response.text;
     
-    return response.text();
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw new Error("Failed to analyze text");
+    // Clean up if necessary (though responseMimeType usually handles it)
+    const cleanJson = text?.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    if (!cleanJson) throw new Error("Empty response from AI");
+
+    return JSON.parse(cleanJson);
+
+  } catch (error: any) {
+    console.error("Gemini Error:", error);
+    throw new Error(`AI Analysis Failed: ${error.message}`);
   }
 };
