@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # Database
+  mongo:
+    image: mongo:latest
+    container_name: tradecomply_mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # Database GUI (View at http://localhost:8081)
+  mongo-express:
+    image: mongo-express
+    container_name: tradecomply_gui
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+    depends_on:
+      - mongo
+
+  # Queue Service (Required for Day 5)
+  redis:
+    image: redis:alpine
+    container_name: tradecomply_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+volumes:
+  mongo_data:
