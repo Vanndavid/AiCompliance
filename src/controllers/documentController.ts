@@ -49,3 +49,44 @@ export const uploadDocument = async (req: Request, res: Response) => {
     });
   }
 };
+
+// GET /api/document/:id
+export const getDocumentStatus = async (req: Request, res: Response) => {
+  try {
+    const doc = await DocumentModel.findById(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    // Return the status and extraction (if ready)
+    res.json({
+      status: doc.status,
+      extraction: doc.extractedData
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch status' });
+  }
+};
+
+// --- NEW: Get All Documents (History) ---
+export const getAllDocuments = async (req: Request, res: Response) => {
+  try {
+    // Get last 20 docs, newest first
+    const docs = await DocumentModel.find()
+      .sort({ uploadDate: -1 })
+      .limit(20);
+
+    // Map to frontend format
+    const formattedDocs = docs.map(doc => ({
+      id: doc._id,
+      name: doc.originalName,
+      status: doc.status,
+      extraction: doc.extractedData
+    }));
+
+    res.json(formattedDocs);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+};
