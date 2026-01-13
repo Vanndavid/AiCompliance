@@ -13,7 +13,14 @@ startScheduler();
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+    origin: [
+      'https://aicompliance.vanndavidteng.com',
+      'http://localhost:5173', // dev
+      'http://sitemsafe.local', // dev
+    ],
+    credentials: true,
+  }));
 app.use(express.json());
 
 app.use('/api', apiRoutes);
