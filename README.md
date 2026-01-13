@@ -238,8 +238,5 @@ git clone https://github.com/Vanndavid/AiCompliance.git
 cd AiCompliance
 docker-compose up -d --build
 
-go to http://localhost:5173/
-
-
----
+# go to http://localhost:5173/
 
