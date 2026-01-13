@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:6
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks: [web]
+
+  redis:
+    image: redis:alpine
+    restart: always
+    networks: [web]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aicompliance_api
+    env_file:
+      - .env.production
+    depends_on:
+      - mongo
+      - redis
+    restart: always
+    networks: [web]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.aicompliance.rule=Host(`aicompliance.vanndavidteng.com`)"
+      - "traefik.http.routers.aicompliance.entrypoints=web,websecure"
+      - "traefik.http.routers.aicompliance.tls=true"
+      - "traefik.http.routers.aicompliance.tls.certresolver=letsencrypt"
+      - "traefik.http.services.aicompliance.loadbalancer.server.port=3000"
+  
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: tradecomply_worker
+    env_file:
+      - .env.production
+    depends_on:
+      - mongo
+      - redis
+    restart: always
+    networks: [web]
+    labels:
+      - "traefik.enable=false"
+
+networks:
+  web:
+    external: true
+
+volumes:
+  mongo_data:
