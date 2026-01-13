@@ -1,22 +1,19 @@
 # Ai Compliance 
 ### AI-Assisted Compliance Monitoring for Construction & Trade Sites
 
-**Ai Compliance** is a prototype internal compliance tool designed for construction, logistics, and trade businesses to prevent **expired licenses, certifications, and insurance documents** from causing site shutdowns, safety incidents, or regulatory fines.
+**Ai Compliance** is a prototype internal compliance tool designed for organisations that manage time-sensitive documents such as licenses, certifications, permits, or insurance policies.
 
-The system uses **multimodal AI** to extract and validate document data, then continuously monitors expiry status and alerts site managers before issues occur.
-
-This project focuses on **practical system design**, **asynchronous processing**, and **responsible AI usage**, rather than building a generic “AI SaaS”.
+The system automatically extracts expiry dates from uploaded documents, monitors them continuously, and reminds users before deadlines (e.g. 30 days before expiry) to reduce compliance risk and operational disruption.
 
 ---
 
 ## Problem Statement
 
-Construction and trade sites rely on time-sensitive documents such as:
+Many organisations rely on documents that have strict expiry or renewal deadlines:
 
-- White Cards  
-- Forklift / machinery licenses  
-- Trade certifications  
-- Insurance certificates  
+- Licenses and permits 
+- Certifications
+- Insurances 
 
 In practice, these documents are:
 - Stored as PDFs or photos
@@ -25,12 +22,12 @@ In practice, these documents are:
 - Often discovered only during audits or incidents
 
 The result:
-- Site shutdowns
+- Missed deadlines
 - Compliance breaches
 - Fines
-- Safety risks
+- Legal risks
 
-**Ai Compliance automates this workflow** with minimal friction for users.
+**Ai Compliance automates this workflow** by extracting key dates directly from documents and monitoring them automatically.
 
 ---
 
@@ -38,8 +35,8 @@ The result:
 
 Instead of manual data entry:
 
-> A site manager uploads a photo of a document.  
-> The system extracts structured data, validates it, and tracks compliance automatically.
+> A user uploads a document.
+The system extracts structured data, tracks the expiry date, and reminds them before it becomes a problem.
 
 The system is designed as an **internal operations tool**, not a public marketplace.
 
@@ -55,12 +52,12 @@ The system is designed as an **internal operations tool**, not a public marketpl
   - Holder name
 - Handles varied layouts and low-quality images
 
-### 2. Compliance Validation
-- Checks extracted data against basic rules:
-  - Is the document expired?
-  - Is the document type recognised?
-  - Does the name match the assigned worker?
-- Assigns a **confidence score** rather than absolute judgment
+### 2. Deadline & Compliance Tracking
+- Stores extracted expiry dates in structured form
+- Automatically calculates:
+  - Expired
+  - Expiring soon (e.g. within 30 days)
+  - Valid
 
 ### 3. Asynchronous Processing
 - Document analysis runs in background workers
@@ -112,11 +109,10 @@ User uploads document
 ### AI
 - Google Gemini (Multimodal Vision + Reasoning)
 - Structured JSON extraction
-- Confidence-based validation
 
 ### Frontend
 - React
-- Tailwind CSS
+- Material UI
 - Simple dashboard with traffic-light status indicators
 
 ### Infrastructure
@@ -166,7 +162,6 @@ Using queues allows:
 ### Phase 1 – AI Core
 - [x] Node.js + TypeScript setup
 - [x] Gemini API integration
-- [x] `/analyze` endpoint for image → structured JSON  
 **Goal:** Prove reliable extraction from real documents
 
 ### Phase 2 – Application Layer
@@ -176,10 +171,9 @@ Using queues allows:
 **Goal:** Reliable storage & processing pipeline
 
 ### Phase 3 – Product Layer (MVP)
-- [ ] React dashboard
-- [ ] Traffic-light compliance status
-- [ ] Scheduled expiry checks
-- [ ] Email / SMS reminders  
+- [x] React dashboard
+- [x] Scheduled expiry checks
+- [x] Notification  
 **Goal:** End-to-end usable prototype
 
 ---
@@ -194,7 +188,6 @@ Using queues allows:
    - 🟡 Expiring soon
    - 🔴 Expired
 5. Reminder is automatically scheduled
-6. Manager can manually override if required
 
 ---
 
@@ -209,32 +202,44 @@ The AI provides **decision support**, not authority.
 
 ---
 
+## Future Improvements (Out of Scope for This Prototype)
+
+The current system intentionally focuses on the core compliance workflow.
+The following improvements were consciously left out to maintain scope and clarity:
+
+Authentication & Access Control
+
+- User authentication and role-based access (e.g. admin vs viewer)
+- Organisation-level document ownership
+- Audit logs for document changes and overrides
+
+Cloud & Infrastructure
+- Object storage for uploads (e.g. S3-compatible storage)
+- Horizontal scaling of workers
+- Managed Redis / MongoDB services
+
+Reliability & Observability
+- Job metrics and dashboards
+- Dead-letter queues for failed jobs
+- Structured logging and tracing
+
+Integrations
+- Calendar integrations (Google / Outlook)
+- Webhooks for external systems
+- Compliance export reports
+
+---
+
 ## Getting Started
 
 ```bash
 # Clone
-git clone https://github.com/yourname/sitesafe.git
-cd sitesafe
+git clone https://github.com/Vanndavid/AiCompliance.git
+cd AiCompliance
+docker-compose up -d --build
 
-# Install dependencies
-npm install
-
-# Environment
-cp .env.example .env
-# Add:
-# GEMINI_API_KEY
-# MONGODB_URI
-# REDIS_URL
-
-# Run (Docker)
-docker-compose up -d
+go to http://localhost:5173/
 
 
 ---
 
-If you want next:
-- ATS-optimised version  
-- recruiter-friendly shortened README  
-- interview explanation cheat-sheet  
-
-Just say the word.

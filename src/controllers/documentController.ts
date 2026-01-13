@@ -5,7 +5,7 @@ import NotificationModel from '../models/Notification';
 
 // GET /api/health
 export const checkHealth = (req: Request, res: Response) => {
-  res.json({ status: 'active', message: 'TradeComply API is running 🟢' });
+  res.json({ status: 'active', message: ' API is running 🟢' });
 };
 
 // POST /api/upload (Async Version - Day 5)

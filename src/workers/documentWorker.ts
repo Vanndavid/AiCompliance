@@ -11,7 +11,7 @@ dotenv.config();
 // We need a separate DB connection for the worker process
 const connectDB = async () => {
   if (mongoose.connection.readyState === 0) {
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/tradecomply');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/aicpompliance');
     console.log('✅ Worker Connected to MongoDB');
   }
 };
