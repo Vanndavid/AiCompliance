@@ -3,6 +3,13 @@ import request from 'supertest';
 import app from '../server'; // Import your Express App
 import mongoose from 'mongoose';
 
+// Without this, the real Clerk middleware runs with a fake key and crashes the server.
+jest.mock('@clerk/express', () => ({
+  clerkMiddleware: () => (req: any, res: any, next: any) => next(), // Pass through
+  requireAuth: () => (req: any, res: any, next: any) => next(),
+  getAuth: () => ({ userId: 'test_user' })
+}));
+
 // Close DB connection after tests
 afterAll(async () => {
   await mongoose.connection.close();
