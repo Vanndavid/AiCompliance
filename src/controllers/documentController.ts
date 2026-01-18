@@ -16,7 +16,8 @@ export const uploadDocument = async (req: Request, res: Response) => {
     res.status(400).json({ error: 'No file uploaded' });
     return;
   }
-
+  const { userId } = getAuth(req);
+  console.log('Fetching documents for user:', userId);
   try {
     console.log(`Received file: ${req.file.path}`);
 
@@ -27,6 +28,7 @@ export const uploadDocument = async (req: Request, res: Response) => {
       storagePath: req.file.path,
       mimeType: req.file.mimetype,
       status: 'pending', // Starts as pending
+      userId: userId,    // Link to Clerk User ID
     });
 
     // 2. Dispatch Job to Queue (The "Senior" Move)
@@ -75,8 +77,6 @@ export const getDocumentStatus = async (req: Request, res: Response) => {
 // --- NEW: Get All Documents (History) ---
 export const getAllDocuments = async (req: Request, res: Response) => {
   try {
-    const { userId } = getAuth(req);
-    console.log('Fetching documents for user:', userId);
     // Get last 20 docs, newest first
     const docs = await DocumentModel.find()
       .sort({ uploadDate: -1 })
@@ -88,7 +88,6 @@ export const getAllDocuments = async (req: Request, res: Response) => {
       name: doc.originalName,
       status: doc.status,
       extraction: doc.extractedData,
-      userId: userId
     }));
 
     res.json(formattedDocs);
@@ -100,8 +99,6 @@ export const getAllDocuments = async (req: Request, res: Response) => {
 
 export const getNotifications = async (req: Request, res: Response) => {
   try {
-    const { userId } = getAuth(req);
-    console.log('Fetching documents for user:', userId);
     // Get last 5 unread notifications
     const alerts = await NotificationModel.find({ read: false })
       .sort({ createdAt: -1 })

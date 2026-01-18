@@ -176,13 +176,14 @@ Using queues allows:
 - [x] Notification  
 **Goal:** End-to-end usable prototype
 
-### Phase 4 – The "SaaS" Architecture
+### Phase 5 – The "SaaS" Architecture
+- [ ] Test Case
 - [ ] Authentication (Clerk)
 - [ ] Multi-Tenancy (Organization and team members)
 - [ ] Payments (Stripe)
 **Goal:** Transform it from a "Single-Player Demo" into a "Multi-User Platform" ready for paying customers.
 
-### Phase 5 – The "Final" Polish
+### Phase 6 – The "Final" Polish
 - [ ] Landing Page
 - [ ] Email/Phone Notifications
 - [ ] Cloud Storage
@@ -251,4 +252,7 @@ cd AiCompliance
 docker-compose up -d --build
 
 # go to http://localhost:5173/
+
+# Testing Backend
+docker exec -it aicompliance_backend npm test
 

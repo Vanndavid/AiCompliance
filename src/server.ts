@@ -32,6 +32,11 @@ app.get('/', (req, res) => {
   res.redirect('/api/health');
 });
 
-app.listen(port, () => {
-  console.log(`🚀 Server running at http://localhost:${port}`);
-});
+// Only listen if this file is run directly (not imported by tests)
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`🚀 Server running at http://localhost:${port}`);
+  });
+}
+
+export default app;

@@ -1,6 +1,8 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IDocument extends Document {
+  userId: string;        // Linked to Clerk ID
+  userEmail?: string; 
   originalName: string;
   storagePath: string;
   mimeType: string;
@@ -16,6 +18,8 @@ export interface IDocument extends Document {
 }
 
 const DocumentSchema = new Schema<IDocument>({
+  userId: { type: String, required: false, index: true },    
+  userEmail: { type: String },  
   originalName: { type: String, required: true },
   storagePath: { type: String, required: true },
   mimeType: { type: String, required: true },
