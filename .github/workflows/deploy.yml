@@ -16,8 +16,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           # Use Key (Recommended) or Password. Setup specific secret in GitHub.
-          key: ${{ secrets.VPS_SSH_KEY }}
-          # password: ${{ secrets.VPS_PASSWORD }} 
+          # key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }} 
           script: |
             # 1. Navigate to your project folder
             cd /home/ubuntu/traefik-projects/AiCompliance
