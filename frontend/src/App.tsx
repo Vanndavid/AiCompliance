@@ -7,6 +7,8 @@ import { NotificationPanel } from './components/NotificationPanel';
 import { api, setAuthToken } from './api/client';
 import { useAuth } from '@clerk/clerk-react';
 import type { DocumentItem, NotificationItem } from './types';
+import GitHubIcon from '@mui/icons-material/GitHub';
+import { Fab, Tooltip } from '@mui/material';
 
 export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -116,6 +118,26 @@ export default function App() {
         <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
         <UploadArea uploading={uploading} error={error} onUpload={uploadFile} />
         <DocumentList documents={documents} />
+
+        <Tooltip title="View Source Code" arrow>
+          <Fab
+            aria-label="github"
+            sx={{ 
+                position: 'fixed', 
+                bottom: 32, 
+                right: 32, 
+                bgcolor: '#000000', // Deep black
+                color: '#ffffff',    // White icon
+                '&:hover': {
+                  bgcolor: '#333333', // Slightly lighter on hover
+                }
+              }}
+            href="https://github.com/Vanndavid/AiCompliance" 
+            target="_blank"
+          >
+            <GitHubIcon />
+          </Fab>
+        </Tooltip>
       </Container>
     </Box>
   );
