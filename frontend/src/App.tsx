@@ -109,6 +109,10 @@ export default function App() {
         <Typography variant="h3" textAlign="center" fontWeight="bold" mb={4}>
           AI Compliance Officer
         </Typography>
+       
+        <Typography color="text.secondary" sx={{ mb: 3 }}>
+          Automatically extracts expiry dates from uploaded documents, monitors them continuously, and reminds users before deadlines (e.g. 30 days before expiry) to reduce compliance risk and operational disruption.
+        </Typography>
         <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
         <UploadArea uploading={uploading} error={error} onUpload={uploadFile} />
         <DocumentList documents={documents} />
