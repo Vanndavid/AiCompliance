@@ -24,6 +24,9 @@ export default function App() {
         setAuthToken(token); // Now all api.get/post calls have the token!
         fetchDocuments();
         fetchNotifications();
+      }else {
+        fetchDocuments();
+        fetchNotifications();
       }
     };
     setupApi();
