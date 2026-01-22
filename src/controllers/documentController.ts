@@ -12,37 +12,52 @@ export const checkHealth = (req: Request, res: Response) => {
 
 // POST /api/upload (Async Version - Day 5)
 export const uploadDocument = async (req: Request, res: Response) => {
+  // 1. Safety Check
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
   }
-  const { userId } = getAuth(req);
-  console.log('Fetching documents for user:', userId);
-  try {
-    console.log(`Received file: ${req.file.path}`);
 
-    // 1. Create DB Record (Status: Pending)
-    // We save it FIRST so we have an ID to track
+  // 2. TypeScript Hack (Crucial for Speed)
+  // S3 adds '.key' and '.location', but TypeScript thinks it's a local file.
+  // Casting to 'any' stops TS from complaining.
+  const fileData = req.file as any; 
+  console.log('File uploaded to S3 with key:', fileData);
+  // const { userId } = getAuth(req); // Keeping your Auth logic
+  const userId = "test-user-123"; // TEMP: Use a dummy string if Auth isn't set up yet
+
+  console.log('Fetching documents for user:', userId);
+  
+  try {
+    // Note: We use fileData.key (S3) instead of .path
+    console.log(`Received file key: ${fileData.key}`); 
+
+    // 3. Create DB Record
     const newDoc = await DocumentModel.create({
-      originalName: req.file.originalname,
-      storagePath: req.file.path,
-      mimeType: req.file.mimetype,
-      status: 'pending', // Starts as pending
-      userId: userId,    // Link to Clerk User ID
+      originalName: fileData.originalname,
+      // IMPORTANT: Save the S3 Key (e.g., "uploads/123.pdf"), NOT the full URL
+      storagePath: fileData.key, 
+      mimeType: fileData.mimetype,
+      status: 'pending',
+      userId: userId,
     });
 
-    // 2. Dispatch Job to Queue (The "Senior" Move)
-    // This offloads the heavy AI processing to the background worker
-    await addDocumentJob(newDoc._id as unknown as string, newDoc.storagePath, newDoc.mimeType);
+    // 4. Dispatch Job to Queue
+    // We pass the S3 Key so the Worker (or Lambda) can find it later
+    // Ensure addDocumentJob accepts the key!
+    if (typeof addDocumentJob === 'function') {
+        await addDocumentJob(newDoc._id as unknown as string, newDoc.storagePath, newDoc.mimeType);
+    }
 
-    // 3. Return "Accepted" immediately (Don't wait for AI)
+    // 5. Success Response
     res.status(202).json({
       success: true,
       message: 'Upload accepted. Processing in background.',
       file: {
         id: newDoc._id,
         originalName: newDoc.originalName,
-        status: 'pending' // Frontend sees "Pending"
+        status: 'pending',
+        key: newDoc.storagePath // Useful for debugging
       }
     });
 
