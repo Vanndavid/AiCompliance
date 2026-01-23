@@ -1,10 +1,11 @@
-import { Card, CardContent, Box, Typography, List, ListItem, ListItemIcon, ListItemText, Grid, Divider, Chip, Tooltip, Button, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
+import { Card, CardContent, Box, Typography, List, ListItem, Link, Grid, Divider, Chip, Tooltip, Button, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import ArticleIcon from '@mui/icons-material/Article';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import CircularProgress from '@mui/material/CircularProgress';
 import type { DocumentItem, AiExtraction } from '../types';
 import { useState } from 'react';
+import { api } from '../api/client';
 
 interface Props {
   documents: DocumentItem[];
@@ -24,6 +25,37 @@ export const DocumentList = ({ documents }: Props) => {
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const handleOpen = (doc:DocumentItem) => setSelectedDoc(doc);
   const handleClose = () => setSelectedDoc(null)
+
+  const handleDownload = async (e: any, doc:DocumentItem) => {
+    e.preventDefault(); // Stop the <a> tag from navigating
+    
+    try {
+      // 1. Get the temporary link from your API
+      const encodedKey = encodeURIComponent(doc.storagePath);
+      const response = await api.get(`/api/download/${encodedKey}`, {
+        params: { name: doc.name }
+      });
+      const downloadUrl = response.data.url;
+
+      // Opnen in the same window
+      // 2a Create a hidden link and click it to trigger the download
+      // const tempLink = document.createElement('a');
+      // tempLink.href = downloadUrl;
+      // tempLink.setAttribute('download', doc.name); // Secondary fallback
+      // document.body.appendChild(tempLink);
+      // tempLink.click();
+    
+      // 3. Cleanup
+      // document.body.removeChild(tempLink);
+
+      // Or Open in a new tab/window
+      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+
+    } catch (err) {
+      console.error("Download error:", err);
+      alert("Failed to download file.");
+    }
+  };
   return (
     <Card sx={{ border: '1px solid #e0e0e0', animation: 'fadeIn 0.5s ease-in' }}>
       <CardContent>
@@ -51,7 +83,12 @@ export const DocumentList = ({ documents }: Props) => {
                     alignItems="center"
                   >
                     <Typography fontWeight="bold">
-                      {doc.name}
+                       <Link 
+                        href="#" 
+                        onClick={(e) => handleDownload(e, doc)}
+                      >
+                        {doc.name}
+                      </Link>
                     </Typography>
                     {getStatusChip(doc.status, doc.extraction)}
                   </Box>
