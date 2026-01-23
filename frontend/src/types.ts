@@ -11,6 +11,7 @@ export interface DocumentItem {
   id: string;
   name: string;
   status: 'pending' | 'processed' | 'failed';
+  storagePath: string;
   extraction?: AiExtraction;
 }
 

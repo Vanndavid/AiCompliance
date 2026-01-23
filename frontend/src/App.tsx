@@ -89,7 +89,7 @@ export default function App() {
 
       const data = res.data;
       setDocuments(prev => [
-        { id: data.file.id, name: data.file.originalName, status: 'pending' },
+        { id: data.file.id, name: data.file.originalName, status: 'pending', storagePath: data.file.storagePath },
         ...prev
       ]);
       pollForStatus(data.file.id);

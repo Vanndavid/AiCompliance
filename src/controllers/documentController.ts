@@ -3,7 +3,17 @@ import DocumentModel from '../models/Document';
 import { addDocumentJob } from '../queues/documentQueue';
 import NotificationModel from '../models/Notification';
 
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getAuth } from '@clerk/express'; 
+
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || "ap-southeast-2",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
 
 // GET /api/health
 export const checkHealth = (req: Request, res: Response) => {
@@ -102,6 +112,7 @@ export const getAllDocuments = async (req: Request, res: Response) => {
       id: doc._id,
       name: doc.originalName,
       status: doc.status,
+      storagePath: doc.storagePath,
       extraction: doc.extractedData,
     }));
 
@@ -136,3 +147,37 @@ export const markAsRead = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to mark notification read' });
   }
 };
+
+export const downloadDocument = async (req: Request, res: Response) => {
+  try {
+    
+    console.log("Here");
+    const fileKey = req.params.key;
+    const fileName = req.query.name || 'download';
+    console.log(`Generating download link for key: ${fileKey}`);
+    if (!fileKey) {
+        return res.status(400).json({ error: "File key is required" });
+    }
+    // Generate the temporary secure link
+    const downloadUrl = await generatePresignedUrl(fileKey,fileName as string);
+    res.json({ url: downloadUrl });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to generate download link' });
+  }
+};
+
+// Helper: Generate Presigned URL for S3 Download
+export const generatePresignedUrl = async (fileKey: string, fileName: string) => {
+  const command = new GetObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: String(fileKey),
+      
+      // Forces the browser to "Save As" instead of opening the file
+      // ResponseContentDisposition: `attachment; filename="${fileName}"`
+  });
+  console.log("Generating presigned URL with command:", command);
+  // Generate a URL that expires in 1 hour (3600 seconds)
+  const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
+  return url;
+};  
