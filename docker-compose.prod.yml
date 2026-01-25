@@ -1,13 +1,13 @@
 services:
   # Database
   # using atlas
-  # mongo:
-  #   image: mongo:6
-  #   container_name: aicompliance_mongo
-  #   restart: always
-  #   volumes:
-  #     - mongo_data:/data/db
-  #   networks: [web]
+  mongo:
+    image: mongo:6
+    container_name: aicompliance_mongo
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks: [web]
 
   # Database GUI (View at http://localhost:8081)
   # mongo-express:
@@ -40,9 +40,9 @@ services:
     #   - "3000:3000"
     env_file:
       - .env
-    depends_on:
-      - mongo
-      - redis
+    # depends_on:
+    #   - mongo
+    #   - redis
     restart: unless-stopped
     # traefik
     networks: [web]
