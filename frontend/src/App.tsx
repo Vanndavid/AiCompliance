@@ -9,6 +9,7 @@ import { useAuth } from '@clerk/clerk-react';
 import type { DocumentItem, NotificationItem } from './types';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { Fab, Tooltip } from '@mui/material';
+import LandingPage from './components/LandingPage';
 
 export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -103,47 +104,55 @@ export default function App() {
   return (
     <Box minHeight="100vh" bgcolor="#f5f5f5">
       <Header />
-      <Container maxWidth="md" sx={{ mt: 6 }}>
-        <Typography variant="h3" textAlign="center" fontWeight="bold" mb={4}>
-          AI Compliance Officer
-        </Typography>
-       
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          Automatically extracts expiry dates from uploaded documents, monitors them continuously, and reminds users before deadlines (e.g. 30 days before expiry) to reduce compliance risk and operational disruption.
-          <Button 
-            variant="text" 
-            component="a" 
-            href="/Sample.pdf" // Path relative to the public folder
-            download="Sample_Document.pdf" // Suggests a filename for the download
-            sx={{ ml: 1, textTransform: 'none', verticalAlign: 'baseline' }}
-          >
-            Download Sample
-          </Button>
-        </Typography>
-        <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
-        <UploadArea uploading={uploading} error={error} onUpload={uploadFile} />
-        <DocumentList documents={documents} />
+      
+      {isSignedIn ? (
+        <Container maxWidth="md" sx={{ mt: 6 }}>
+          <Typography variant="h3" textAlign="center" fontWeight="bold" mb={4}>
+            AI Compliance Officer
+          </Typography>
+        
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            Automatically extracts expiry dates from uploaded documents, monitors them continuously, and reminds users before deadlines (e.g. 30 days before expiry) to reduce compliance risk and operational disruption.
+            <Button 
+              variant="text" 
+              component="a" 
+              href="/Sample.pdf" // Path relative to the public folder
+              download="Sample_Document.pdf" // Suggests a filename for the download
+              sx={{ ml: 1, textTransform: 'none', verticalAlign: 'baseline' }}
+            >
+              Download Sample
+            </Button>
+          </Typography>
+          <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
+          <UploadArea uploading={uploading} error={error} onUpload={uploadFile} />
+          <DocumentList documents={documents} />
 
-        <Tooltip title="View Source Code" arrow>
-          <Fab
-            aria-label="github"
-            sx={{ 
-                position: 'fixed', 
-                bottom: 32, 
-                right: 32, 
-                bgcolor: '#000000', // Deep black
-                color: '#ffffff',    // White icon
-                '&:hover': {
-                  bgcolor: '#333333', // Slightly lighter on hover
-                }
-              }}
-            href="https://github.com/Vanndavid/AiCompliance" 
-            target="_blank"
-          >
-            <GitHubIcon />
-          </Fab>
-        </Tooltip>
-      </Container>
+          <Tooltip title="View Source Code" arrow>
+            <Fab
+              aria-label="github"
+              sx={{ 
+                  position: 'fixed', 
+                  bottom: 32, 
+                  right: 32, 
+                  bgcolor: '#000000', // Deep black
+                  color: '#ffffff',    // White icon
+                  '&:hover': {
+                    bgcolor: '#333333', // Slightly lighter on hover
+                  }
+                }}
+              href="https://github.com/Vanndavid/AiCompliance" 
+              target="_blank"
+            >
+              <GitHubIcon />
+            </Fab>
+          </Tooltip>
+        </Container>
+      ) : (
+        <Container>
+          <LandingPage/>
+        </Container>
+      )}
+      
     </Box>
   );
 }
