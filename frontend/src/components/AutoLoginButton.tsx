@@ -1,9 +1,9 @@
 import { useSignIn } from "@clerk/clerk-react";
-import { Button } from "@mui/material";
+import { Button, keyframes } from '@mui/material';
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-export const AutoLoginButton = () => {
+export const AutoLoginButton = ({disablePulse=false}) => {
   const { signIn, setActive, isLoaded } = useSignIn();
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -41,18 +41,32 @@ export const AutoLoginButton = () => {
       setIsLoading(false);
     }
   };
+  const pulse = keyframes`
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.02); opacity: 0.8; color: #cfe5f1; }
+    100% { transform: scale(1); opacity: 1; }
+    `;
 
   return (
     <Button
-      onClick={handleGuestLogin}
-      disabled={isLoading}
-      style={{ color: 'white' }}
+        onClick={handleGuestLogin}
+        disabled={isLoading}
+        variant={disablePulse ? "contained" : "text"}
+        sx={{
+        px: 4, py: 1.5, fontWeight: 600, 
+        color: 'white',
+        // Apply the animation: 2 seconds, ease-in-out timing, infinite loop
+        animation: (!isLoading && !disablePulse) ? `${pulse} 1.5s ease-in-out infinite` : 'none',
+        '&:hover': {
+          animation: 'none', // Optional: stop flashing when user hovers
+        },
+      }}
     >
       {isLoading ? (
         <span>Logging in...</span> 
       ) : (
         <>
-          <span>Sign In (Auto)</span>
+          <span>TRY DEMO</span>
         </>
       )}
     </Button>
