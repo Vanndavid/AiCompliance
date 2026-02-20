@@ -103,7 +103,7 @@ User uploads document
 ### Backend
 - Node.js + TypeScript
 - Express
-- BullMQ + Redis (background jobs)
+- BullMQ + Redis (background jobs) X AWS SQS + Lambda
 - MongoDB (flexible document schemas)
 
 ### AI
