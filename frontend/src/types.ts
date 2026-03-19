@@ -13,6 +13,16 @@ export interface DocumentItem {
   status: 'pending' | 'processed' | 'failed';
   storagePath: string;
   extraction?: AiExtraction;
+  matchReasons?: string[];
+}
+
+export interface SearchResponse {
+  query: string;
+  interpretedFilters: {
+    keywords: string[];
+    expiryWithinDays: number | null;
+  };
+  results: DocumentItem[];
 }
 
 export interface NotificationItem {

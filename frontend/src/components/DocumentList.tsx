@@ -1,4 +1,4 @@
-import { Card, CardContent, Box, Typography, List, ListItem, Link, Grid, Divider, Chip, Tooltip, Button, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
+import { Card, CardContent, Box, Typography, List, ListItem, Link, Grid, Divider, Chip, Tooltip, Button, Dialog, DialogTitle, DialogContent } from '@mui/material';
 import ArticleIcon from '@mui/icons-material/Article';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
@@ -116,6 +116,14 @@ export const DocumentList = ({ documents }: Props) => {
                         <Typography>{(doc.extraction.confidence?doc.extraction.confidence*100:0)+"%" || 'N/A'}</Typography>
                       </Grid>
                     </Grid>
+                  )}
+
+                  {doc.matchReasons && doc.matchReasons.length > 0 && (
+                    <Box mt={1} display="flex" gap={1} flexWrap="wrap">
+                      {doc.matchReasons.map(reason => (
+                        <Chip key={`${doc.id}-${reason}`} label={reason} size="small" color="secondary" variant="outlined" />
+                      ))}
+                    </Box>
                   )}
 
                   {doc.status === 'pending' && (
