@@ -1,7 +1,7 @@
 import { Router } from 'express';
 // import { upload } from '../middleware/upload';
 import upload from "../config/s3uploader"
-import { checkHealth, getDocumentStatus, getAllDocuments, uploadDocument, getNotifications, markAsRead, downloadDocument, searchDocuments } from '../controllers/documentController';
+import { checkHealth, getDocumentStatus, getAllDocuments, getDocumentOverview, uploadDocument, getNotifications, markAsRead, downloadDocument, searchDocuments } from '../controllers/documentController';
 
 const router = Router();
 
@@ -10,6 +10,7 @@ router.get('/health', checkHealth);
 router.post('/upload', upload.single('document'), uploadDocument);
 router.get('/document/:id', getDocumentStatus); 
 router.get('/documents', getAllDocuments);
+router.get('/documents/overview', getDocumentOverview);
 router.get('/documents/search', searchDocuments);
 router.get('/notifications', getNotifications);
 router.patch('/notifications/:id/read', markAsRead);

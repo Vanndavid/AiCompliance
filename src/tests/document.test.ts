@@ -204,4 +204,65 @@ describe('Document API Endpoints', () => {
     );
   });
 
+  it('should return a document overview with compliance counts and expiring documents', async () => {
+    const expiredDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const expiringSoon = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const validDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    await DocumentModel.create({
+      originalName: 'expired-trade-license.pdf',
+      storagePath: 'uploads/expired-trade-license.pdf',
+      mimeType: 'application/pdf',
+      status: 'processed',
+      userId: 'test_user_123',
+      extractedData: {
+        docType: 'Trade License',
+        expiryDate: expiredDate,
+      },
+    });
+
+    await DocumentModel.create({
+      originalName: 'expiring-soon-white-card.pdf',
+      storagePath: 'uploads/expiring-soon-white-card.pdf',
+      mimeType: 'application/pdf',
+      status: 'processed',
+      userId: 'test_user_123',
+      extractedData: {
+        docType: 'White Card',
+        expiryDate: expiringSoon,
+      },
+    });
+
+    await DocumentModel.create({
+      originalName: 'long-valid-insurance.pdf',
+      storagePath: 'uploads/long-valid-insurance.pdf',
+      mimeType: 'application/pdf',
+      status: 'processed',
+      userId: 'test_user_123',
+      extractedData: {
+        docType: 'Insurance',
+        expiryDate: validDate,
+      },
+    });
+
+    const res = await request(app)
+      .get('/api/documents/overview')
+      .query({ expiringWithinDays: 30, limit: 3 });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.filters).toMatchObject({
+      expiringWithinDays: 30,
+    });
+    expect(res.body.totals.expired).toBeGreaterThanOrEqual(1);
+    expect(res.body.totals.expiringSoon).toBeGreaterThanOrEqual(1);
+    expect(res.body.totals.valid).toBeGreaterThanOrEqual(1);
+    expect(res.body.expiringDocuments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'expiring-soon-white-card.pdf',
+        }),
+      ])
+    );
+  });
+
 });

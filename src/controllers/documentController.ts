@@ -63,6 +63,13 @@ const daysUntilExpiry = (expiryDate?: string) => {
   return Math.ceil((parsed.getTime() - now.getTime()) / msPerDay);
 };
 
+const parsePositiveInt = (value: unknown, fallback: number) => {
+  if (typeof value !== 'string') return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
 const buildDocumentSearchSummary = (doc: any) => {
   const parts = [
     doc.originalName,
@@ -188,6 +195,93 @@ export const getAllDocuments = async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+};
+
+export const getDocumentOverview = async (req: Request, res: Response) => {
+  try {
+    const expiringWithinDays = parsePositiveInt(req.query.expiringWithinDays, 30);
+    const limit = parsePositiveInt(req.query.limit, 5);
+
+    const docs = await DocumentModel.find().sort({ uploadDate: -1 }).limit(500);
+
+    const totals = {
+      total: docs.length,
+      pending: 0,
+      processed: 0,
+      failed: 0,
+      expired: 0,
+      expiringSoon: 0,
+      valid: 0,
+      missingExpiry: 0,
+    };
+
+    const expiringDocuments: Array<{
+      id: typeof docs[number]['_id'];
+      name: string;
+      expiryDate?: string;
+      daysUntilExpiry: number;
+      status: typeof docs[number]['status'];
+    }> = [];
+
+    docs.forEach(doc => {
+      if (doc.status === 'pending') totals.pending += 1;
+      if (doc.status === 'processed') totals.processed += 1;
+      if (doc.status === 'failed') totals.failed += 1;
+
+      const expiryInDays = daysUntilExpiry(doc.extractedData?.expiryDate);
+
+      if (expiryInDays == null) {
+        totals.missingExpiry += 1;
+        return;
+      }
+
+      if (expiryInDays < 0) {
+        totals.expired += 1;
+        return;
+      }
+
+      if (expiryInDays <= expiringWithinDays) {
+        totals.expiringSoon += 1;
+        const expiringEntry: {
+          id: typeof docs[number]['_id'];
+          name: string;
+          expiryDate?: string;
+          daysUntilExpiry: number;
+          status: typeof docs[number]['status'];
+        } = {
+          id: doc._id,
+          name: doc.originalName,
+          daysUntilExpiry: expiryInDays,
+          status: doc.status,
+        };
+
+        if (doc.extractedData?.expiryDate) {
+          expiringEntry.expiryDate = doc.extractedData.expiryDate;
+        }
+
+        expiringDocuments.push({
+          ...expiringEntry,
+        });
+        return;
+      }
+
+      totals.valid += 1;
+    });
+
+    expiringDocuments.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      filters: {
+        expiringWithinDays,
+      },
+      totals,
+      expiringDocuments: expiringDocuments.slice(0, limit),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch document overview' });
   }
 };
 
