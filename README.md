@@ -186,8 +186,20 @@ Using queues allows:
 - [x] Test Case
 - [x] Authentication (Clerk)
 - [ ] Multi-Tenancy (Organization and team members)
-- [ ] Payments (Stripe)
+- [x] Payments (Stripe Checkout)
 **Goal:** Transform it from a "Single-Player Demo" into a "Multi-User Platform" ready for paying customers.
+
+Payments now use a hosted Stripe Checkout flow:
+
+- Signed-in users can start a subscription checkout session from the dashboard
+- The backend creates the Stripe Checkout session with the authenticated Clerk user attached as metadata
+- Billing URLs are environment-driven so local, staging, and production environments can each return to the correct frontend
+
+What is still intentionally left for the next SaaS step:
+
+- Stripe webhooks to persist subscription state in MongoDB
+- Entitlement checks that gate features by plan
+- Organization-level billing once multi-tenancy is complete
 
 ### Phase 6 – The "Final" Polish
 - [ ] Landing Page

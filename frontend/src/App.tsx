@@ -10,12 +10,18 @@ import type { DocumentItem, NotificationItem } from './types';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { Fab, Tooltip } from '@mui/material';
 import LandingPage from './components/LandingPage';
+import { BillingCard } from './components/BillingCard';
 
 export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [billingStatus] = useState<string | null>(
+    new URLSearchParams(window.location.search).get('billing')
+  );
   // auth token
   const { getToken, isSignedIn } = useAuth();
   useEffect(() => {
@@ -74,6 +80,29 @@ export default function App() {
   const handleNotificationRead = (id: string) => {
     setNotifications(prev => prev.filter(n => n._id !== id));
   };
+
+  const handleBillingCheckout = async () => {
+    setBillingLoading(true);
+    setBillingError(null);
+
+    try {
+      const res = await api.post('/api/billing/checkout');
+      const checkoutUrl = res.data?.url as string | undefined;
+
+      if (!checkoutUrl) {
+        throw new Error('Checkout URL missing from API response.');
+      }
+
+      window.location.assign(checkoutUrl);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unable to start checkout right now.';
+      setBillingError(message);
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
   const uploadFile = async (file: File) => {
     setUploading(true);
     setError(null);
@@ -123,6 +152,12 @@ export default function App() {
               Download Sample
             </Button>
           </Typography>
+          <BillingCard
+            error={billingError}
+            loading={billingLoading}
+            onCheckout={handleBillingCheckout}
+            status={billingStatus}
+          />
           <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
           <UploadArea uploading={uploading} error={error} onUpload={uploadFile} />
           <DocumentList documents={documents} />
