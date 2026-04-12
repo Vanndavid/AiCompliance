@@ -8,6 +8,80 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getAuth } from '@clerk/express'; 
 
+const SEARCH_STOP_WORDS = new Set([
+  'a', 'about', 'all', 'an', 'and', 'are', 'be', 'by', 'documents', 'document', 'expire', 'expired', 'expiring',
+  'files', 'find', 'for', 'from', 'in', 'is', 'me', 'month', 'months', 'of', 'show', 'that', 'the', 'their',
+  'to', 'uploaded', 'user', 'with', 'within'
+]);
+
+const normalizeSearchText = (value?: string) =>
+  (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const tokenizeSearchTerms = (query: string) => {
+  const matches = normalizeSearchText(query).match(/[a-z0-9]+/g) || [];
+  return Array.from(new Set(matches.filter(token => token.length > 1 && !SEARCH_STOP_WORDS.has(token))));
+};
+
+const extractExpiryWindowDays = (query: string) => {
+  const normalized = normalizeSearchText(query);
+  const match = normalized.match(/(?:expire|expired|expiring)(?:d)?(?:\s+\w+){0,3}?\s+(?:in|within|before)\s+(\d+)\s+(day|days|week|weeks|month|months)/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, amountRaw, unitRaw] = match;
+  if (!amountRaw || !unitRaw) {
+    return null;
+  }
+
+  const amount = Number(amountRaw);
+  const unit = unitRaw.toLowerCase();
+
+  if (Number.isNaN(amount) || amount < 0) {
+    return null;
+  }
+
+  if (unit.startsWith('day')) return amount;
+  if (unit.startsWith('week')) return amount * 7;
+  if (unit.startsWith('month')) return amount * 30;
+  return null;
+};
+
+const daysUntilExpiry = (expiryDate?: string) => {
+  if (!expiryDate) return null;
+
+  const parsed = new Date(expiryDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const now = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.ceil((parsed.getTime() - now.getTime()) / msPerDay);
+};
+
+const parsePositiveInt = (value: unknown, fallback: number) => {
+  if (typeof value !== 'string') return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
+const buildDocumentSearchSummary = (doc: any) => {
+  const parts = [
+    doc.originalName,
+    doc.extractedData?.docType,
+    doc.extractedData?.holderName,
+    doc.extractedData?.licenseNumber,
+    doc.extractedData?.content,
+  ].filter(Boolean);
+
+  return normalizeSearchText(parts.join(' '));
+};
+
 const s3 = new S3Client({
   region: process.env.AWS_REGION || "ap-southeast-2",
   credentials: {
@@ -121,6 +195,165 @@ export const getAllDocuments = async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+};
+
+export const getDocumentOverview = async (req: Request, res: Response) => {
+  try {
+    const expiringWithinDays = parsePositiveInt(req.query.expiringWithinDays, 30);
+    const limit = parsePositiveInt(req.query.limit, 5);
+
+    const docs = await DocumentModel.find().sort({ uploadDate: -1 }).limit(500);
+
+    const totals = {
+      total: docs.length,
+      pending: 0,
+      processed: 0,
+      failed: 0,
+      expired: 0,
+      expiringSoon: 0,
+      valid: 0,
+      missingExpiry: 0,
+    };
+
+    const expiringDocuments: Array<{
+      id: typeof docs[number]['_id'];
+      name: string;
+      expiryDate?: string;
+      daysUntilExpiry: number;
+      status: typeof docs[number]['status'];
+    }> = [];
+
+    docs.forEach(doc => {
+      if (doc.status === 'pending') totals.pending += 1;
+      if (doc.status === 'processed') totals.processed += 1;
+      if (doc.status === 'failed') totals.failed += 1;
+
+      const expiryInDays = daysUntilExpiry(doc.extractedData?.expiryDate);
+
+      if (expiryInDays == null) {
+        totals.missingExpiry += 1;
+        return;
+      }
+
+      if (expiryInDays < 0) {
+        totals.expired += 1;
+        return;
+      }
+
+      if (expiryInDays <= expiringWithinDays) {
+        totals.expiringSoon += 1;
+        const expiringEntry: {
+          id: typeof docs[number]['_id'];
+          name: string;
+          expiryDate?: string;
+          daysUntilExpiry: number;
+          status: typeof docs[number]['status'];
+        } = {
+          id: doc._id,
+          name: doc.originalName,
+          daysUntilExpiry: expiryInDays,
+          status: doc.status,
+        };
+
+        if (doc.extractedData?.expiryDate) {
+          expiringEntry.expiryDate = doc.extractedData.expiryDate;
+        }
+
+        expiringDocuments.push({
+          ...expiringEntry,
+        });
+        return;
+      }
+
+      totals.valid += 1;
+    });
+
+    expiringDocuments.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      filters: {
+        expiringWithinDays,
+      },
+      totals,
+      expiringDocuments: expiringDocuments.slice(0, limit),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch document overview' });
+  }
+};
+
+export const searchDocuments = async (req: Request, res: Response) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    const keywordTerms = tokenizeSearchTerms(query);
+    const expiryWindowDays = extractExpiryWindowDays(query);
+
+    const docs = await DocumentModel.find({ status: 'processed' }).sort({ uploadDate: -1 }).limit(100);
+
+    const matches = docs
+      .map(doc => {
+        const haystack = buildDocumentSearchSummary(doc);
+        const matchedTerms = keywordTerms.filter(term => haystack.includes(term));
+        const expiryInDays = daysUntilExpiry(doc.extractedData?.expiryDate);
+        const matchesExpiryWindow = expiryWindowDays == null
+          ? true
+          : expiryInDays != null && expiryInDays >= 0 && expiryInDays <= expiryWindowDays;
+
+        const keywordMatchRequired = keywordTerms.length === 0 || matchedTerms.length > 0;
+
+        if (!keywordMatchRequired || !matchesExpiryWindow) {
+          return null;
+        }
+
+        const reasons = [] as string[];
+        if (matchedTerms.length > 0) {
+          reasons.push(`Matched ${matchedTerms.join(', ')}`);
+        }
+        if (expiryWindowDays != null && expiryInDays != null) {
+          reasons.push(`Expires in ${expiryInDays} day${expiryInDays === 1 ? '' : 's'}`);
+        }
+
+        return {
+          id: doc._id,
+          name: doc.originalName,
+          status: doc.status,
+          storagePath: doc.storagePath,
+          extraction: doc.extractedData,
+          matchReasons: reasons,
+          score: matchedTerms.length + (matchesExpiryWindow && expiryWindowDays != null ? 2 : 0),
+        };
+      })
+      .filter((doc): doc is {
+        id: typeof docs[number]['_id'];
+        name: string;
+        status: typeof docs[number]['status'];
+        storagePath: string;
+        extraction: typeof docs[number]['extractedData'];
+        matchReasons: string[];
+        score: number;
+      } => doc !== null)
+      .sort((a, b) => b.score - a.score)
+      .map(({ score, ...doc }) => doc);
+
+    res.json({
+      query,
+      interpretedFilters: {
+        keywords: keywordTerms,
+        expiryWithinDays: expiryWindowDays,
+      },
+      results: matches,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to search documents' });
   }
 };
 

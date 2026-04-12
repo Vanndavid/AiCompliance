@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Container, Typography } from '@mui/material';
+import { Alert, Box, Button, Container, Paper, Stack, TextField, Typography } from '@mui/material';
 import { Header } from './components/Header';
 import { UploadArea } from './components/UploadArea';
 import { DocumentList } from './components/DocumentList';
@@ -22,6 +22,9 @@ export default function App() {
   const [billingStatus] = useState<string | null>(
     new URLSearchParams(window.location.search).get('billing')
   );
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchSummary, setSearchSummary] = useState<string | null>(null);
   // auth token
   const { getToken, isSignedIn } = useAuth();
   useEffect(() => {
@@ -53,6 +56,45 @@ export default function App() {
     } catch (err) {
       console.error('Failed to fetch notifications', err);
     }
+  };
+
+
+  const searchDocuments = async () => {
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery) {
+      await fetchDocuments();
+      setSearchSummary(null);
+      return;
+    }
+
+    setSearching(true);
+    setError(null);
+
+    try {
+      const res = await api.get('/api/documents/search', { params: { q: trimmedQuery } });
+      const data = res.data;
+      setDocuments(data.results);
+
+      const keywordSummary = data.interpretedFilters.keywords.length
+        ? `keywords: ${data.interpretedFilters.keywords.join(', ')}`
+        : 'no keyword filters';
+      const expirySummary = data.interpretedFilters.expiryWithinDays
+        ? `expiry within ${data.interpretedFilters.expiryWithinDays} days`
+        : 'no expiry window';
+
+      setSearchSummary(`Found ${data.results.length} matching document(s) using ${keywordSummary} and ${expirySummary}.`);
+    } catch {
+      setError('Search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const clearSearch = async () => {
+    setSearchQuery('');
+    setSearchSummary(null);
+    setError(null);
+    await fetchDocuments();
   };
   const pollForStatus = (docId: string) => {
     const interval = setInterval(async () => {
@@ -158,6 +200,36 @@ export default function App() {
             onCheckout={handleBillingCheckout}
             status={billingStatus}
           />
+          <Paper sx={{ p: 3, mb: 3, border: '1px solid #e0e0e0' }}>
+            <Stack spacing={2}>
+              <Typography variant="h6" fontWeight="bold">
+                Search your uploaded files in chat
+              </Typography>
+              <Typography color="text.secondary">
+                Ask questions like “Show me all the documents about health insurance that are about to expire in 1 month.”
+              </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  fullWidth
+                  placeholder="Ask about your files..."
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      void searchDocuments();
+                    }
+                  }}
+                />
+                <Button variant="contained" onClick={() => void searchDocuments()} disabled={searching}>
+                  {searching ? 'Searching…' : 'Search'}
+                </Button>
+                <Button variant="outlined" onClick={() => void clearSearch()} disabled={searching && !searchQuery}>
+                  Clear
+                </Button>
+              </Stack>
+              {searchSummary && <Alert severity="info">{searchSummary}</Alert>}
+            </Stack>
+          </Paper>
           <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
           <UploadArea uploading={uploading} error={error} onUpload={uploadFile} />
           <DocumentList documents={documents} />

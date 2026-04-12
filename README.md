@@ -70,6 +70,12 @@ The system is designed as an **internal operations tool**, not a public marketpl
 - Flags upcoming expiries
 - Sends automated reminders via email/SMS
 
+### 6. Compliance Overview API
+- New endpoint: `GET /api/documents/overview`
+- Returns compliance-ready totals (`expired`, `expiringSoon`, `valid`, `missingExpiry`, etc.)
+- Supports configurable expiry windows via `expiringWithinDays` query param
+- Includes nearest expiring documents for dashboards and audit workflows
+
 ### 5. Human Override (Important)
 - AI decisions can be manually overridden
 - Final compliance responsibility remains with humans
@@ -103,7 +109,7 @@ User uploads document
 ### Backend
 - Node.js + TypeScript
 - Express
-- BullMQ + Redis (background jobs)
+- BullMQ + Redis (background jobs) X AWS SQS + Lambda
 - MongoDB (flexible document schemas)
 
 ### AI
@@ -185,6 +191,7 @@ Using queues allows:
 ### Phase 5 – The "SaaS" Architecture
 - [x] Test Case
 - [x] Authentication (Clerk)
+- [ ] WebSocket
 - [ ] Multi-Tenancy (Organization and team members)
 - [x] Payments (Stripe Checkout)
 **Goal:** Transform it from a "Single-Player Demo" into a "Multi-User Platform" ready for paying customers.
@@ -202,9 +209,8 @@ What is still intentionally left for the next SaaS step:
 - Organization-level billing once multi-tenancy is complete
 
 ### Phase 6 – The "Final" Polish
-- [ ] Landing Page
+- [x] Landing Page
 - [ ] Email/Phone Notifications
-- [ ] Cloud Storage
 **Goal:** Make it look production-ready
 
 ---
@@ -284,4 +290,3 @@ docker-compose up -d --build
 
 # Testing Backend
 docker exec -it aicompliance_backend npm test
-
