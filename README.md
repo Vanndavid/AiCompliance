@@ -70,6 +70,12 @@ The system is designed as an **internal operations tool**, not a public marketpl
 - Flags upcoming expiries
 - Sends automated reminders via email/SMS
 
+### 6. Compliance Overview API
+- New endpoint: `GET /api/documents/overview`
+- Returns compliance-ready totals (`expired`, `expiringSoon`, `valid`, `missingExpiry`, etc.)
+- Supports configurable expiry windows via `expiringWithinDays` query param
+- Includes nearest expiring documents for dashboards and audit workflows
+
 ### 5. Human Override (Important)
 - AI decisions can be manually overridden
 - Final compliance responsibility remains with humans
@@ -272,4 +278,3 @@ docker-compose up -d --build
 
 # Testing Backend
 docker exec -it aicompliance_backend npm test
-
