@@ -56,6 +56,9 @@ describe('Review API', () => {
         storagePath: 'uploads/user/doc.pdf',
         extraction: { expiryDate: '2025-01-01' },
         processingError: null,
+        contentHash: null,
+        crewMemberId: null,
+        opsStatus: 'needs_human' as const,
         evaluation: evaluationFixture,
       },
     ]);
@@ -64,7 +67,7 @@ describe('Review API', () => {
     expect(res.status).toBe(200);
     expect(res.body.reviews).toHaveLength(1);
     expect(res.body.reviews[0].evaluation.reviewStatus).toBe('pending');
-    expect(mockedList).toHaveBeenCalledWith('test_user_123');
+    expect(mockedList).toHaveBeenCalledWith('test_user_123', undefined);
   });
 
   it('approves a pending evaluation', async () => {

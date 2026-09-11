@@ -3,6 +3,10 @@ jest.mock('../config/prisma', () => ({
   default: {
     document: {
       update: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    crewMember: {
+      upsert: jest.fn(),
     },
   },
 }));
@@ -17,6 +21,8 @@ import { ingestDocumentChunks } from '../services/ragIngestService';
 import { applyProcessingResult, INVALID_MODEL_OUTPUT } from '../services/compliance/applyProcessingResult';
 
 const mockedUpdate = (prisma.document.update as jest.Mock);
+const mockedFindUnique = (prisma.document.findUnique as jest.Mock);
+const mockedCrewUpsert = (prisma.crewMember.upsert as jest.Mock);
 const mockedIngest = ingestDocumentChunks as jest.MockedFunction<typeof ingestDocumentChunks>;
 
 const validPayload = {
@@ -38,7 +44,11 @@ const validPayload = {
 describe('applyProcessingResult', () => {
   beforeEach(() => {
     mockedUpdate.mockReset();
+    mockedFindUnique.mockReset();
+    mockedCrewUpsert.mockReset();
     mockedIngest.mockClear();
+    mockedFindUnique.mockResolvedValue({ userId: 'user-1', projectId: 1 });
+    mockedCrewUpsert.mockResolvedValue({ id: 'crew-1' });
   });
 
   it('marks the document failed when the model JSON is invalid', async () => {
@@ -105,7 +115,7 @@ describe('applyProcessingResult', () => {
               llmDecision: 'uncertain',
               risk: 'medium',
               confidence: 0.5,
-              explanation: 'Tower crane lift SWMS',
+              explanation: expect.stringContaining('Tower crane lift SWMS'),
               needsReview: true,
             }),
           }),
@@ -136,7 +146,7 @@ describe('applyProcessingResult', () => {
           evaluations: expect.objectContaining({
             create: expect.objectContaining({
               modelId: 'gemini-2.5-flash',
-              promptVersion: 'compliance-eval-v2',
+              promptVersion: 'compliance-eval-v3',
               llmDecision: 'clear',
               reviewStatus: 'not_required',
               finalDecision: 'clear',

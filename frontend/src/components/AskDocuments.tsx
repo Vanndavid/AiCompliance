@@ -55,7 +55,7 @@ export const AskDocuments = ({ selectedProjectId }: Props) => {
   };
 
   return (
-    <Paper sx={{ p: 3, mb: 3 }}>
+    <Paper sx={{ p: 3 }}>
       <Typography variant="h6" gutterBottom>
         Ask your documents
       </Typography>

@@ -56,6 +56,39 @@ export interface DocumentItem {
   processingError?: string | null;
   evaluation?: DocumentEvaluation | null;
   matchReasons?: string[];
+  contentHash?: string | null;
+  crewMemberId?: string | null;
+  opsStatus?: OpsStatus;
+}
+
+export type OpsStatus = 'processing' | 'failed' | 'needs_human' | 'expired' | 'expiring' | 'valid';
+
+export interface CrewMemberItem {
+  id: string | null;
+  name: string;
+  email: string | null;
+  status: OpsStatus;
+  documents: DocumentItem[];
+}
+
+export interface CrewOverviewTotals {
+  expired: number;
+  expiringSoon: number;
+  siteReady: number;
+  needsHuman: number;
+  processing: number;
+  failed: number;
+  people: number;
+  documents: number;
+}
+
+export interface CrewResponse {
+  overview: {
+    generatedAt: string;
+    filters: { expiringWithinDays: number };
+    totals: CrewOverviewTotals;
+  };
+  crew: CrewMemberItem[];
 }
 
 export interface SearchResponse {
@@ -68,10 +101,17 @@ export interface SearchResponse {
 }
 
 export interface NotificationItem {
-  _id: string;
+  id: string;
   type: 'EXPIRY_WARNING' | 'SYSTEM_INFO';
   message: string;
   createdAt: string;
+  crewMemberId: string | null;
+  crewMemberName: string | null;
+  documentId: string;
+  expiryDate: string | null;
+  docType: string | null;
+  nextAction: 'remind';
+  emailSentAt: string | null;
 }
 
 export interface AnswerCitation {

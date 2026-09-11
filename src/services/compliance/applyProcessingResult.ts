@@ -5,6 +5,7 @@ import { evaluateParsedLlm } from './evaluateParsedLlm';
 import { EVALUATION_PROMPT_VERSION, getGeminiModelId } from './extractionPrompt';
 import { parseLlmEvaluation } from './parseLlmEvaluation';
 import { InvalidLlmOutputError } from './types';
+import { upsertCrewMember } from '../crewService';
 
 export const INVALID_MODEL_OUTPUT = 'invalid_model_output';
 
@@ -84,12 +85,28 @@ export const applyProcessingResult = async (
   const { ruleHits, routing } = evaluateParsedLlm(parsed);
   const modelId = payload.modelId || getGeminiModelId();
 
+  const current = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: { userId: true, projectId: true },
+  });
+
+  let crewMemberId: string | undefined;
+  if (current?.userId && current.projectId != null) {
+    const crew = await upsertCrewMember(
+      current.userId,
+      current.projectId,
+      parsed.extraction.holderName,
+    );
+    crewMemberId = crew.id;
+  }
+
   const updatedDoc = await prisma.document.update({
     where: { id: documentId },
     data: {
       status: 'processed',
       processingError: null,
       extractedData: parsed.extraction as Prisma.InputJsonValue,
+      ...(crewMemberId ? { crewMemberId } : {}),
       evaluations: {
         create: {
           modelId,

@@ -3,7 +3,7 @@ import { Button, CircularProgress, Tooltip } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 interface Props {
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   uploading: boolean;
   disabled?: boolean;
 }
@@ -18,7 +18,7 @@ export const CompactUploadButton = ({ onUpload, uploading, disabled }: Props) =>
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      onUpload(files[0]);
+      onUpload(Array.from(files));
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -28,11 +28,12 @@ export const CompactUploadButton = ({ onUpload, uploading, disabled }: Props) =>
       <input
         type="file"
         hidden
+        multiple
         ref={fileInputRef}
         onChange={handleFileChange}
         accept="image/*,application/pdf"
       />
-      <Tooltip title="Supports JPG, PNG, PDF">
+      <Tooltip title="Upload a pile of licences, tickets, or insurance PDFs">
         <span>
           <Button
             variant="contained"
@@ -42,7 +43,7 @@ export const CompactUploadButton = ({ onUpload, uploading, disabled }: Props) =>
             startIcon={uploading ? <CircularProgress size={16} color="inherit" /> : <CloudUploadIcon />}
             sx={{ bgcolor: '#0F172A', whiteSpace: 'nowrap' }}
           >
-            {uploading ? 'Uploading…' : 'Upload'}
+            {uploading ? 'Uploading…' : 'Upload tickets'}
           </Button>
         </span>
       </Tooltip>

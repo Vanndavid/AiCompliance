@@ -1,60 +1,63 @@
-import { Paper, Typography, List, ListItem, ListItemText } from '@mui/material';
+import { Button, Paper, Typography, List, ListItem, ListItemText, IconButton, Box, Stack } from '@mui/material';
 import ErrorIcon from '@mui/icons-material/Error';
 import CloseIcon from '@mui/icons-material/Close';
-import { IconButton, Box } from '@mui/material';
 import type { NotificationItem } from '../types';
 import { api } from '../api/client';
+import { useState } from 'react';
 
 interface Props {
   notifications: NotificationItem[];
   onRead: (id: string) => void;
+  onReminded: (id: string) => void;
 }
 
-const demoNotifications: NotificationItem[] = [
-  {
-    _id: 'demo-1',
-    type: 'EXPIRY_WARNING',
-    message: 'White Card expires in 14 days',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    _id: 'demo-2',
-    type: 'SYSTEM_INFO',
-    message: 'Insurance document pending review',
-    createdAt: new Date().toISOString(),
-  },
-];
+export const NotificationPanel = ({ notifications, onRead, onReminded }: Props) => {
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-
-
-
-export const NotificationPanel = ({ notifications, onRead }: Props) => {
   if (notifications.length === 0) return null;
+
   const markRead = async (id: string) => {
     await api.patch(`/api/notifications/${id}/read`);
     onRead(id);
   };
+
+  const remind = async (notif: NotificationItem) => {
+    setBusyId(notif.id);
+    try {
+      const res = await api.post<{ mailto?: string; channel?: string }>(
+        `/api/notifications/${notif.id}/remind`,
+      );
+      onReminded(notif.id);
+      if (res.data.channel !== 'smtp' && res.data.mailto) {
+        window.location.href = res.data.mailto;
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
-    <Paper sx={{ p: 2, mb: 4, bgcolor: '#fff3e0', border: '1px solid #ffb74d' }}>
+    <Paper sx={{ p: 2, mb: 3, bgcolor: '#fff3e0', border: '1px solid #ffb74d' }}>
       <Typography
         variant="h6"
         color="warning.dark"
         sx={{ display: 'flex', alignItems: 'center', mb: 1 }}
       >
-        <ErrorIcon sx={{ mr: 1 }} /> Compliance Alerts
+        <ErrorIcon sx={{ mr: 1 }} /> Who needs a reminder
       </Typography>
 
       <List dense>
-        {notifications.map((notif) => (
-          <ListItem key={notif._id} 
+        {notifications.map(notif => (
+          <ListItem
+            key={notif.id}
+            alignItems="flex-start"
             secondaryAction={
               <IconButton
                 edge="end"
-                aria-label="mark as read"
+                aria-label="dismiss"
                 size="small"
-                onClick={(e) => {
-                  e.stopPropagation(); // ⛔ prevent row click
-                  markRead(notif._id);
+                onClick={() => {
+                  void markRead(notif.id);
                 }}
               >
                 <CloseIcon fontSize="small" />
@@ -63,17 +66,31 @@ export const NotificationPanel = ({ notifications, onRead }: Props) => {
           >
             <ListItemText
               primary={notif.message}
-              secondary={new Date(notif.createdAt).toLocaleTimeString()}
+              secondary={
+                <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                  <Typography variant="caption" color="text.secondary">
+                    {notif.emailSentAt ? 'Reminder sent' : 'Not notified yet'}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="warning"
+                    disabled={busyId === notif.id}
+                    onClick={() => void remind(notif)}
+                  >
+                    {busyId === notif.id ? 'Sending…' : 'Remind'}
+                  </Button>
+                </Stack>
+              }
             />
           </ListItem>
         ))}
       </List>
-
-      {notifications.length === 0 && (
+      <Box mt={1}>
         <Typography variant="caption" color="text.secondary">
-          Demo data shown
+          Remind sends email to the worker if you have their address, otherwise to you.
         </Typography>
-      )}
+      </Box>
     </Paper>
   );
 };

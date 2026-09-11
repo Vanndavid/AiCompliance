@@ -3,11 +3,17 @@ import { getRequestUserId } from '../utils/authUtils';
 import { isHttpError } from '../utils/httpError';
 import { listPendingReviews, submitReview } from '../services/compliance/reviewService';
 import type { ComplianceDecision } from '../services/compliance/types';
+import { parsePositiveInt } from '../utils/numberUtils';
 
 export const getPendingReviews = async (req: Request, res: Response) => {
   try {
     const userId = getRequestUserId(req);
-    const reviews = await listPendingReviews(userId);
+    const rawProjectId = req.query.projectId;
+    const projectId =
+      typeof rawProjectId === 'string'
+        ? parsePositiveInt(rawProjectId, 0) || undefined
+        : undefined;
+    const reviews = await listPendingReviews(userId, projectId);
     res.json({ reviews });
   } catch (error) {
     console.error(error);

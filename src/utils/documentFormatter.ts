@@ -1,5 +1,6 @@
 import type { Document, DocumentEvaluation, Prisma } from '@prisma/client';
 import type { EvidenceItem, RuleHit } from '../services/compliance/types';
+import { documentOpsStatus } from './opsStatus';
 
 export type DocumentWithLatestEvaluation = Document & {
   evaluations?: DocumentEvaluation[];
@@ -94,6 +95,8 @@ export const latestEvaluation = (doc: DocumentWithLatestEvaluation) =>
 
 export const formatDocumentListItem = (doc: DocumentWithLatestEvaluation) => {
   const evaluation = latestEvaluation(doc);
+  const formattedEvaluation = evaluation ? formatEvaluation(evaluation) : null;
+  const extraction = doc.extractedData as { expiryDate?: string } | null;
   return {
     id: doc.id,
     name: doc.originalName,
@@ -101,6 +104,13 @@ export const formatDocumentListItem = (doc: DocumentWithLatestEvaluation) => {
     storagePath: doc.storagePath,
     extraction: doc.extractedData,
     processingError: doc.processingError,
-    evaluation: evaluation ? formatEvaluation(evaluation) : null,
+    evaluation: formattedEvaluation,
+    contentHash: doc.contentHash ?? null,
+    crewMemberId: doc.crewMemberId ?? null,
+    opsStatus: documentOpsStatus({
+      status: doc.status,
+      extraction,
+      evaluation: formattedEvaluation,
+    }),
   };
 };

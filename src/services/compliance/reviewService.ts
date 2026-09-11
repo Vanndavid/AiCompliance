@@ -11,9 +11,12 @@ export type SubmitReviewInput = {
   overrideDecision?: ComplianceDecision | undefined;
 };
 
-export const listPendingReviews = async (userId: string) => {
+export const listPendingReviews = async (userId: string, projectId?: number) => {
   const documents = await prisma.document.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(projectId != null ? { projectId } : {}),
+    },
     orderBy: { uploadDate: 'desc' },
     include: {
       evaluations: {

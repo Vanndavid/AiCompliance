@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -12,51 +13,84 @@ import {
   DialogTitle,
   Divider,
   FormControl,
-  Grid,
   IconButton,
   InputLabel,
   Link,
-  List,
-  ListItem,
   MenuItem,
   Select,
+  Stack,
   TextField,
   Tooltip,
   Typography,
   type SelectChangeEvent,
 } from '@mui/material';
-import ArticleIcon from '@mui/icons-material/Article';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import GroupIcon from '@mui/icons-material/Group';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ErrorIcon from '@mui/icons-material/Error';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CircularProgress from '@mui/material/CircularProgress';
-import type { AiExtraction, DocumentEvaluation, DocumentItem, ProjectItem } from '../types';
+import type { CrewMemberItem, DocumentItem, OpsStatus, ProjectItem } from '../types';
+import { PERSON_STATUS_LABEL, OPS_STATUS_LABEL } from '../utils/crew';
 import { useState } from 'react';
 import { api } from '../api/client';
 import { CompactUploadButton } from './CompactUploadButton';
 
 const CREATE_PROJECT_VALUE = '__create__';
 
+const statusChip = (status: OpsStatus) => {
+  if (status === 'processing') {
+    return <Chip icon={<CircularProgress size={16} />} label={OPS_STATUS_LABEL[status]} color="warning" variant="outlined" />;
+  }
+  if (status === 'failed') {
+    return <Chip icon={<ErrorIcon />} label={OPS_STATUS_LABEL[status]} color="error" variant="outlined" />;
+  }
+  if (status === 'needs_human') {
+    return <Chip icon={<WarningAmberIcon />} label={OPS_STATUS_LABEL[status]} color="warning" variant="outlined" />;
+  }
+  if (status === 'expired') {
+    return <Chip icon={<ErrorIcon />} label={OPS_STATUS_LABEL[status]} color="error" variant="outlined" />;
+  }
+  if (status === 'expiring') {
+    return <Chip icon={<WarningAmberIcon />} label={OPS_STATUS_LABEL[status]} color="warning" variant="outlined" />;
+  }
+  return <Chip icon={<CheckCircleIcon />} label={OPS_STATUS_LABEL[status]} color="success" variant="outlined" />;
+};
+
+const personChip = (status: OpsStatus) => {
+  const color =
+    status === 'expired' || status === 'failed'
+      ? 'error'
+      : status === 'valid'
+        ? 'success'
+        : 'warning';
+  return <Chip label={PERSON_STATUS_LABEL[status]} color={color} variant="outlined" />;
+};
+
 interface Props {
-  documents: DocumentItem[];
+  crew: CrewMemberItem[];
   projects: ProjectItem[];
   selectedProjectId: number | null;
   onProjectChange: (projectId: number | null) => void;
   onCreateProject: (name: string) => Promise<void>;
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   onDelete: (docId: string) => Promise<void>;
+  onCrewChanged: () => Promise<void>;
   uploading: boolean;
   uploadError: string | null;
 }
 
 export const DocumentList = ({
-  documents,
+  crew,
   projects,
   selectedProjectId,
   onProjectChange,
   onCreateProject,
   onUpload,
   onDelete,
+  onCrewChanged,
   uploading,
   uploadError,
 }: Props) => {
@@ -68,41 +102,9 @@ export const DocumentList = ({
   const [docToDelete, setDocToDelete] = useState<DocumentItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const getStatusChip = (status: string, evaluation?: DocumentEvaluation | null, extraction?: AiExtraction) => {
-    if (status === 'pending' || status === 'uploading') {
-      return <Chip icon={<CircularProgress size={16} />} label="Processing" color="warning" variant="outlined" />;
-    }
-    if (status === 'failed') {
-      return <Chip icon={<ErrorIcon />} label="Failed" color="error" variant="outlined" />;
-    }
-
-    if (evaluation?.reviewStatus === 'pending') {
-      return <Chip icon={<ErrorIcon />} label="Needs review" color="warning" variant="outlined" />;
-    }
-    if (evaluation?.reviewStatus === 'approved') {
-      return <Chip icon={<CheckCircleIcon />} label="Approved" color="success" variant="outlined" />;
-    }
-    if (evaluation?.reviewStatus === 'rejected') {
-      return <Chip icon={<ErrorIcon />} label="Overridden" color="info" variant="outlined" />;
-    }
-    if (evaluation?.finalDecision === 'flagged') {
-      return <Chip icon={<ErrorIcon />} label="Flagged" color="error" variant="outlined" />;
-    }
-    if (evaluation?.finalDecision === 'clear') {
-      return <Chip icon={<CheckCircleIcon />} label="Clear" color="success" variant="outlined" />;
-    }
-
-    const isValid = extraction?.expiryDate && extraction?.licenseNumber;
-    return (
-      <Chip
-        icon={<CheckCircleIcon />}
-        label={isValid ? 'Clear' : 'Needs review'}
-        color={isValid ? 'success' : 'info'}
-        variant="outlined"
-      />
-    );
-  };
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({});
+  const [remindingId, setRemindingId] = useState<string | null>(null);
 
   const handleOpen = (doc: DocumentItem) => setSelectedDoc(doc);
   const handleClose = () => setSelectedDoc(null);
@@ -189,6 +191,35 @@ export const DocumentList = ({
     }
   };
 
+  const togglePerson = (key: string) => {
+    setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const saveEmail = async (member: CrewMemberItem) => {
+    if (!member.id) {
+      return;
+    }
+    const email = (emailDrafts[member.id] ?? member.email ?? '').trim();
+    await api.patch(`/api/crew/${member.id}`, { email: email || null });
+    await onCrewChanged();
+  };
+
+  const remindPerson = async (member: CrewMemberItem) => {
+    if (!member.id) {
+      return;
+    }
+    setRemindingId(member.id);
+    try {
+      const res = await api.post<{ mailto?: string; channel?: string }>(`/api/crew/${member.id}/remind`);
+      if (res.data.channel !== 'smtp' && res.data.mailto) {
+        window.location.href = res.data.mailto;
+      }
+      await onCrewChanged();
+    } finally {
+      setRemindingId(null);
+    }
+  };
+
   return (
     <Card sx={{ border: '1px solid #e0e0e0', animation: 'fadeIn 0.5s ease-in', mb: 4 }}>
       <CardContent>
@@ -203,7 +234,7 @@ export const DocumentList = ({
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-            <ArticleIcon color="primary" sx={{ mr: 1 }} />
+            <GroupIcon color="primary" sx={{ mr: 1 }} />
             <FormControl size="small" sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}>
               <InputLabel id="project-select-label">Project</InputLabel>
               <Select
@@ -218,7 +249,7 @@ export const DocumentList = ({
                     No projects yet
                   </MenuItem>
                 )}
-                {projects.map((project) => (
+                {projects.map(project => (
                   <MenuItem key={project.id} value={project.id}>
                     {project.name}
                   </MenuItem>
@@ -242,113 +273,109 @@ export const DocumentList = ({
           </Alert>
         )}
 
-        {documents.length === 0 ? (
+        {crew.length === 0 ? (
           <Typography color="text.secondary" textAlign="center" py={4}>
             {selectedProjectId
-              ? 'No documents in this project yet.'
+              ? 'Upload the pile of tickets. We will group them by person.'
               : 'Select or create a project to upload documents.'}
           </Typography>
         ) : (
-          <List>
-            {documents.map((doc, idx) => (
-              <Box key={doc.id}>
-                {idx > 0 && <Divider />}
-                <ListItem alignItems="flex-start">
-                  <Tooltip title="Read Content" placement="top">
-                    <Button
-                      color="secondary"
-                      disabled={!(doc.extraction?.content ?? false)}
-                      onClick={() => handleOpen(doc)}
-                    >
-                      <ArticleIcon sx={{ mr: 2, mt: 0.5 }} />
-                    </Button>
-                  </Tooltip>
-
-                  <Box width="100%">
-                    <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
-                      <Typography fontWeight="bold">
-                        <Link href="#" onClick={(e) => void handleDownload(e, doc)}>
-                          {doc.name}
-                        </Link>
+          <Stack divider={<Divider />}>
+            {crew.map(person => {
+              const key = person.id || person.name;
+              const isOpen = expanded[key] ?? (person.status !== 'valid');
+              return (
+                <Box key={key} py={1.5}>
+                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={1}>
+                    <Box>
+                      <Typography fontWeight={700}>{person.name}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {person.documents.length} document{person.documents.length === 1 ? '' : 's'}
                       </Typography>
-                      <Box display="flex" alignItems="center" gap={0.5}>
-                        {getStatusChip(doc.status, doc.evaluation, doc.extraction)}
-                        <Tooltip title="Remove document">
-                          <IconButton
-                            aria-label={`Remove ${doc.name}`}
-                            size="small"
-                            onClick={() => openDeleteDialog(doc)}
-                            disabled={deleting && docToDelete?.id === doc.id}
-                          >
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
                     </Box>
-
-                    {doc.status === 'processed' && doc.extraction && (
-                      <Grid container spacing={2} mt={1}>
-                        <Grid>
-                          <Typography variant="caption">Expiry</Typography>
-                          <Typography>{doc.extraction.expiryDate || 'N/A'}</Typography>
-                        </Grid>
-                        <Grid>
-                          <Typography variant="caption">Number</Typography>
-                          <Typography>{doc.extraction.licenseNumber || 'N/A'}</Typography>
-                        </Grid>
-                        <Grid>
-                          <Typography variant="caption">Holder</Typography>
-                          <Typography>{doc.extraction.holderName || 'N/A'}</Typography>
-                        </Grid>
-                        <Grid>
-                          <Typography variant="caption">Type</Typography>
-                          <Typography>{doc.extraction.docType || 'N/A'}</Typography>
-                        </Grid>
-                        <Grid>
-                          <Typography variant="caption">Confident</Typography>
-                          <Typography>
-                            {(doc.extraction.confidence ? doc.extraction.confidence * 100 : 0) + '%' || 'N/A'}
-                          </Typography>
-                        </Grid>
-                      </Grid>
-                    )}
-
-                    {doc.matchReasons && doc.matchReasons.length > 0 && (
-                      <Box mt={1} display="flex" gap={1} flexWrap="wrap">
-                        {doc.matchReasons.map((reason) => (
-                          <Chip
-                            key={`${doc.id}-${reason}`}
-                            label={reason}
-                            size="small"
-                            color="secondary"
-                            variant="outlined"
-                          />
-                        ))}
-                      </Box>
-                    )}
-
-                    {doc.status === 'pending' && (
-                      <Typography variant="body2" color="text.secondary" mt={1}>
-                        Analyzing document…
-                      </Typography>
-                    )}
-
-                    {doc.status === 'processed' && doc.evaluation && (
-                      <Typography variant="body2" color="text.secondary" mt={1}>
-                        {doc.evaluation.routingReason}
-                      </Typography>
-                    )}
-
-                    {doc.status === 'failed' && (
-                      <Typography variant="body2" color="error" mt={1}>
-                        Analysis failed{doc.processingError ? `: ${doc.processingError}` : '.'}
-                      </Typography>
-                    )}
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      {personChip(person.status)}
+                      {(person.status === 'expired' || person.status === 'expiring') && person.id && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={remindingId === person.id}
+                          onClick={() => void remindPerson(person)}
+                        >
+                          {remindingId === person.id ? 'Sending…' : 'Remind'}
+                        </Button>
+                      )}
+                      <IconButton
+                        aria-label={isOpen ? 'Hide documents' : 'Show documents'}
+                        size="small"
+                        onClick={() => togglePerson(key)}
+                      >
+                        {isOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </IconButton>
+                    </Stack>
                   </Box>
-                </ListItem>
-              </Box>
-            ))}
-          </List>
+
+                  <Collapse in={isOpen}>
+                    {person.id && (
+                      <TextField
+                        size="small"
+                        label="Reminder email"
+                        placeholder="worker@example.com"
+                        value={emailDrafts[person.id] ?? person.email ?? ''}
+                        onChange={event =>
+                          setEmailDrafts(prev => ({ ...prev, [person.id as string]: event.target.value }))
+                        }
+                        onBlur={() => void saveEmail(person)}
+                        sx={{ mt: 1.5, maxWidth: 360 }}
+                      />
+                    )}
+                    <Stack spacing={1.5} mt={1.5}>
+                      {person.documents.map(doc => (
+                        <Box key={doc.id} sx={{ pl: 1, borderLeft: '3px solid #e0e0e0' }}>
+                          <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
+                            <Typography fontWeight={600}>
+                              <Link href="#" onClick={e => void handleDownload(e, doc)}>
+                                {doc.extraction?.docType || doc.name}
+                              </Link>
+                            </Typography>
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              {statusChip(doc.opsStatus ?? 'valid')}
+                              <Tooltip title="Remove document">
+                                <IconButton
+                                  aria-label={`Remove ${doc.name}`}
+                                  size="small"
+                                  onClick={() => openDeleteDialog(doc)}
+                                  disabled={deleting && docToDelete?.id === doc.id}
+                                >
+                                  <DeleteOutlineIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          </Box>
+                          <Typography variant="body2" color="text.secondary">
+                            {doc.extraction?.expiryDate
+                              ? `Expiry ${doc.extraction.expiryDate}`
+                              : 'No expiry extracted'}
+                            {doc.extraction?.licenseNumber ? ` · ${doc.extraction.licenseNumber}` : ''}
+                          </Typography>
+                          {doc.status === 'processed' && doc.extraction?.content && (
+                            <Button size="small" onClick={() => handleOpen(doc)} sx={{ mt: 0.5, px: 0 }}>
+                              View text
+                            </Button>
+                          )}
+                          {doc.status === 'failed' && (
+                            <Typography variant="body2" color="error" mt={0.5}>
+                              Analysis failed{doc.processingError ? `: ${doc.processingError}` : '.'}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Collapse>
+                </Box>
+              );
+            })}
+          </Stack>
         )}
 
         <Dialog open={createDialogOpen} onClose={() => !creatingProject && setCreateDialogOpen(false)}>
@@ -360,8 +387,8 @@ export const DocumentList = ({
               label="Project name"
               fullWidth
               value={newProjectName}
-              onChange={(event) => setNewProjectName(event.target.value)}
-              onKeyDown={(event) => {
+              onChange={event => setNewProjectName(event.target.value)}
+              onKeyDown={event => {
                 if (event.key === 'Enter') {
                   void handleCreateProject();
                 }

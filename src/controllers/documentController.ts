@@ -8,6 +8,7 @@ import { getObjectHead, generatePresignedDownloadUrl, deleteObject } from '../se
 import {
   createPendingDocumentRecord,
   createUploadIntent,
+  findDuplicateDocument,
   getAllDocuments as fetchAllDocumentsService,
   getDocumentOverview as buildDocumentOverviewService,
   getDocumentStatusById,
@@ -16,8 +17,11 @@ import {
   deleteDocumentForUser,
 } from '../services/documentService';
 import { getUnreadNotifications, markNotificationRead } from '../services/notificationService';
+import { sendReminderForNotification } from '../services/reminderService';
 import { applyProcessingResult } from '../services/compliance/applyProcessingResult';
 import { formatEvaluation, latestEvaluation } from '../utils/documentFormatter';
+import { EXPIRING_THIS_WEEK_DAYS } from '../utils/opsStatus';
+import { normalizeS3Etag } from '../utils/s3Etag';
 
 type UploadedFileData = {
   originalname: string;
@@ -158,7 +162,29 @@ export const completeDocumentUpload = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Uploaded file is too large' });
     }
 
-    const updatedDoc = await markDocumentPendingAndQueue(doc);
+    const contentHash = normalizeS3Etag(headResult.ETag ?? null);
+    const byteSize = headResult.ContentLength ?? null;
+
+    if (contentHash) {
+      const duplicate = await findDuplicateDocument(userId, doc.projectId, contentHash, doc.id);
+      if (duplicate) {
+        await prisma.document.delete({ where: { id: doc.id } });
+        await deleteObject(doc.storagePath);
+        return res.status(200).json({
+          success: true,
+          duplicate: true,
+          message: 'This file is already in the project.',
+          file: {
+            id: duplicate.id,
+            originalName: duplicate.originalName,
+            status: duplicate.status,
+            key: duplicate.storagePath,
+          },
+        });
+      }
+    }
+
+    const updatedDoc = await markDocumentPendingAndQueue(doc, { contentHash, byteSize });
 
     res.status(202).json({
       success: true,
@@ -287,9 +313,14 @@ export const getAllDocuments = async (req: Request, res: Response) => {
 
 export const getDocumentOverview = async (req: Request, res: Response) => {
   try {
-    const expiringWithinDays = parsePositiveInt(req.query.expiringWithinDays, 30);
-    const limit = parsePositiveInt(req.query.limit, 5);
-    const overview = await buildDocumentOverviewService(expiringWithinDays, limit);
+    const userId = getRequestUserId(req);
+    const rawProjectId = req.query.projectId;
+    const projectId =
+      typeof rawProjectId === 'string'
+        ? parsePositiveInt(rawProjectId, 0) || undefined
+        : undefined;
+    const expiringWithinDays = parsePositiveInt(req.query.expiringWithinDays, EXPIRING_THIS_WEEK_DAYS);
+    const overview = await buildDocumentOverviewService(userId, projectId, expiringWithinDays);
 
     res.json(overview);
   } catch (error) {
@@ -320,9 +351,15 @@ export const searchDocuments = async (req: Request, res: Response) => {
   }
 };
 
-export const getNotifications = async (_req: Request, res: Response) => {
+export const getNotifications = async (req: Request, res: Response) => {
   try {
-    const alerts = await getUnreadNotifications();
+    const userId = getRequestUserId(req);
+    const rawProjectId = req.query.projectId;
+    const projectId =
+      typeof rawProjectId === 'string'
+        ? parsePositiveInt(rawProjectId, 0) || undefined
+        : undefined;
+    const alerts = await getUnreadNotifications(userId, projectId);
     res.json(alerts);
   } catch (error) {
     console.error(error);
@@ -337,11 +374,35 @@ export const markAsRead = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Notification id is required' });
     }
 
-    await markNotificationRead(id);
+    const userId = getRequestUserId(req);
+    await markNotificationRead(id, userId);
     res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to mark notification read' });
+  }
+};
+
+export const remindFromNotification = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Notification id is required' });
+    }
+    const notificationId = Number(id);
+    if (!Number.isInteger(notificationId)) {
+      return res.status(400).json({ error: 'Invalid notification id' });
+    }
+
+    const userId = getRequestUserId(req);
+    const result = await sendReminderForNotification(notificationId, userId);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (isHttpError(error)) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    console.error(error);
+    res.status(500).json({ error: 'Failed to send reminder' });
   }
 };
 

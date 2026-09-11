@@ -15,7 +15,7 @@ export const Header = () => {
         <Toolbar>
           <SecurityIcon sx={{ mr: 2 }} />
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-            Ai Compliance
+            SiteSafe
           </Typography>
 
           {!isLoading && !isAuthenticated && (

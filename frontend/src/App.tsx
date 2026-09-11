@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Box, CircularProgress, Container, Fab, Tooltip, Typography } from '@mui/material';
 import { Header } from './components/Header';
 import { DocumentList } from './components/DocumentList';
 import { NotificationPanel } from './components/NotificationPanel';
-import { AskDocuments } from './components/AskDocuments';
 import { ReviewQueue } from './components/ReviewQueue';
+import { SiteReadyOverview } from './components/SiteReadyOverview';
+import { DocumentTools } from './components/DocumentTools';
 import { useAuth, api } from './auth/AuthContext';
-import type { DocumentItem, NotificationItem, ProjectItem } from './types';
+import type { CrewMemberItem, CrewOverviewTotals, CrewResponse, DocumentItem, NotificationItem, ProjectItem } from './types';
+import { groupDocumentsByHolder } from './utils/crew';
 import GitHubIcon from '@mui/icons-material/GitHub';
-import { Fab, Tooltip } from '@mui/material';
 import LandingPage from './components/LandingPage';
 
 interface UploadUrlResponse {
@@ -20,7 +21,8 @@ interface UploadUrlResponse {
 
 export default function App() {
   const { isAuthenticated, isLoading } = useAuth();
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [crew, setCrew] = useState<CrewMemberItem[]>([]);
+  const [overview, setOverview] = useState<CrewOverviewTotals | null>(null);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -30,6 +32,7 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [searchSummary, setSearchSummary] = useState<string | null>(null);
   const [reviews, setReviews] = useState<DocumentItem[]>([]);
+  const [filteredCrew, setFilteredCrew] = useState<CrewMemberItem[] | null>(null);
 
   const fetchProjects = async () => {
     const res = await api.get<{ projects: ProjectItem[] }>('/api/projects');
@@ -37,37 +40,55 @@ export default function App() {
     return res.data.projects;
   };
 
-  const fetchDocuments = useCallback(async (projectId?: number | null) => {
-    const params = projectId != null ? { projectId } : undefined;
-    const res = await api.get('/api/documents', { params });
-    setDocuments(res.data);
+  const fetchCrew = useCallback(async (projectId?: number | null) => {
+    if (projectId == null) {
+      setCrew([]);
+      setOverview(null);
+      return;
+    }
+
+    const res = await api.get<CrewResponse>('/api/crew', { params: { projectId } });
+    setCrew(res.data.crew);
+    setOverview(res.data.overview.totals);
   }, []);
 
-  const fetchReviews = async () => {
+  const fetchReviews = async (projectId?: number | null) => {
     try {
-      const res = await api.get<{ reviews: DocumentItem[] }>('/api/reviews');
+      const params = projectId != null ? { projectId } : undefined;
+      const res = await api.get<{ reviews: DocumentItem[] }>('/api/reviews', { params });
       setReviews(res.data.reviews);
     } catch (err) {
       console.error('Failed to fetch reviews', err);
     }
   };
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = async (projectId?: number | null) => {
     try {
-      const res = await api.get('/api/notifications');
+      const params = projectId != null ? { projectId } : undefined;
+      const res = await api.get<NotificationItem[]>('/api/notifications', { params });
       setNotifications(res.data);
     } catch (err) {
       console.error('Failed to fetch notifications', err);
     }
   };
 
+  const refreshProjectData = useCallback(async (projectId?: number | null) => {
+    await Promise.all([
+      fetchCrew(projectId),
+      fetchReviews(projectId),
+      fetchNotifications(projectId),
+    ]);
+  }, [fetchCrew]);
+
   useEffect(() => {
     if (!isAuthenticated) {
-      setDocuments([]);
+      setCrew([]);
+      setOverview(null);
       setProjects([]);
       setSelectedProjectId(null);
       setNotifications([]);
       setReviews([]);
+      setFilteredCrew(null);
       return;
     }
 
@@ -77,26 +98,26 @@ export default function App() {
         setSelectedProjectId(loadedProjects[0].id);
       }
     })();
-    void fetchNotifications();
-    void fetchReviews();
   }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated || selectedProjectId == null) {
       if (selectedProjectId == null) {
-        setDocuments([]);
+        setCrew([]);
+        setOverview(null);
       }
       return;
     }
 
-    void fetchDocuments(selectedProjectId);
-  }, [isAuthenticated, selectedProjectId, fetchDocuments]);
+    void refreshProjectData(selectedProjectId);
+  }, [isAuthenticated, selectedProjectId, refreshProjectData]);
 
   const searchDocuments = async () => {
     const trimmedQuery = searchQuery.trim();
     if (!trimmedQuery) {
-      await fetchDocuments(selectedProjectId);
+      setFilteredCrew(null);
       setSearchSummary(null);
+      await fetchCrew(selectedProjectId);
       return;
     }
 
@@ -111,7 +132,7 @@ export default function App() {
         },
       });
       const data = res.data;
-      setDocuments(data.results);
+      setFilteredCrew(groupDocumentsByHolder(data.results));
 
       const keywordSummary = data.interpretedFilters.keywords.length
         ? `keywords: ${data.interpretedFilters.keywords.join(', ')}`
@@ -131,8 +152,9 @@ export default function App() {
   const clearSearch = async () => {
     setSearchQuery('');
     setSearchSummary(null);
+    setFilteredCrew(null);
     setError(null);
-    await fetchDocuments(selectedProjectId);
+    await fetchCrew(selectedProjectId);
   };
 
   const pollForStatus = (docId: string) => {
@@ -143,23 +165,7 @@ export default function App() {
 
         if (data.status === 'processed' || data.status === 'failed') {
           clearInterval(interval);
-
-          setDocuments((prev) =>
-            prev.map((doc) =>
-              doc.id === docId
-                ? {
-                    ...doc,
-                    status: data.status,
-                    extraction: data.extraction,
-                    processingError: data.processingError,
-                    evaluation: data.evaluation,
-                  }
-                : doc,
-            ),
-          );
-          if (data.evaluation?.reviewStatus === 'pending' || data.status === 'failed') {
-            void fetchReviews();
-          }
+          await refreshProjectData(selectedProjectId);
         }
       } catch (err) {
         console.error('Polling error', err);
@@ -168,23 +174,22 @@ export default function App() {
   };
 
   const handleNotificationRead = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n._id !== id));
+    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   const handleCreateProject = async (name: string) => {
     const res = await api.post<{ project: ProjectItem }>('/api/projects', { name });
     const project = res.data.project;
-    setProjects((prev) => [project, ...prev]);
+    setProjects(prev => [project, ...prev]);
     setSelectedProjectId(project.id);
   };
 
   const handleDeleteDocument = async (docId: string) => {
     await api.delete(`/api/documents/${docId}`);
-    setDocuments((prev) => prev.filter((doc) => doc.id !== docId));
-    setReviews((prev) => prev.filter((doc) => doc.id !== docId));
+    await refreshProjectData(selectedProjectId);
   };
 
-  const uploadFile = async (file: File) => {
+  const uploadFiles = async (files: File[]) => {
     if (selectedProjectId == null) {
       setError('Select or create a project first');
       return;
@@ -194,34 +199,38 @@ export default function App() {
     setError(null);
 
     try {
-      const uploadUrlRes = await api.post<UploadUrlResponse>('/api/documents/upload-url', {
-        fileName: file.name,
-        mimeType: file.type,
-        sizeBytes: file.size,
-        projectId: selectedProjectId,
-      });
+      for (const file of files) {
+        const uploadUrlRes = await api.post<UploadUrlResponse>('/api/documents/upload-url', {
+          fileName: file.name,
+          mimeType: file.type,
+          sizeBytes: file.size,
+          projectId: selectedProjectId,
+        });
 
-      const { documentId, key, uploadUrl } = uploadUrlRes.data;
-      const s3Res = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type,
-        },
-        body: file,
-      });
+        const { documentId, uploadUrl } = uploadUrlRes.data;
+        const s3Res = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type,
+          },
+          body: file,
+        });
 
-      if (!s3Res.ok) {
-        throw new Error('S3 upload failed');
+        if (!s3Res.ok) {
+          throw new Error('S3 upload failed');
+        }
+
+        const completeRes = await api.post(`/api/documents/${documentId}/complete-upload`);
+        const data = completeRes.data as { duplicate?: boolean; file: { id: string } };
+
+        if (data.duplicate) {
+          setError('That file is already in this project.');
+          continue;
+        }
+
+        pollForStatus(data.file.id);
       }
-
-      const completeRes = await api.post(`/api/documents/${documentId}/complete-upload`);
-      const data = completeRes.data;
-
-      setDocuments((prev) => [
-        { id: data.file.id, name: data.file.originalName, status: 'pending', storagePath: data.file.key ?? key },
-        ...prev,
-      ]);
-      pollForStatus(data.file.id);
+      await refreshProjectData(selectedProjectId);
     } catch (err) {
       console.error('Upload failed', err);
       setError('Upload failed');
@@ -244,71 +253,51 @@ export default function App() {
 
       {isAuthenticated ? (
         <Container maxWidth="md" sx={{ mt: 6 }}>
-          <Typography variant="h3" textAlign="center" fontWeight="bold" mb={4}>
-            AI Compliance Officer
+          <Typography variant="h3" textAlign="center" fontWeight="bold" mb={1}>
+            Who's site-ready
+          </Typography>
+          <Typography color="text.secondary" textAlign="center" sx={{ mb: 4 }}>
+            Upload the pile of tickets. Tomorrow morning you know who cannot go on site, and they already got a reminder.
           </Typography>
 
-          <Typography color="text.secondary" sx={{ mb: 3 }}>
-            Automatically extracts expiry dates from uploaded documents, monitors them continuously, and reminds users
-            before deadlines (e.g. 30 days before expiry) to reduce compliance risk and operational disruption.
-            <Button
-              variant="text"
-              component="a"
-              href="/Sample.pdf"
-              download="Sample_Document.pdf"
-              sx={{ ml: 1, textTransform: 'none', verticalAlign: 'baseline' }}
-            >
-              Download Sample
-            </Button>
-          </Typography>
-
-          <Paper sx={{ p: 3, mb: 3, border: '1px solid #e0e0e0' }}>
-            <Stack spacing={2}>
-              <Typography variant="h6" fontWeight="bold">
-                Search your uploaded files in chat
-              </Typography>
-              <Typography color="text.secondary">
-                Ask questions like “Show me all the documents about health insurance that are about to expire in 1
-                month.”
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  fullWidth
-                  placeholder="Ask about your files..."
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      void searchDocuments();
-                    }
-                  }}
-                />
-                <Button variant="contained" onClick={() => void searchDocuments()} disabled={searching}>
-                  {searching ? 'Searching…' : 'Search'}
-                </Button>
-                <Button variant="outlined" onClick={() => void clearSearch()} disabled={searching && !searchQuery}>
-                  Clear
-                </Button>
-              </Stack>
-              {searchSummary && <Alert severity="info">{searchSummary}</Alert>}
-            </Stack>
-          </Paper>
-          <AskDocuments selectedProjectId={selectedProjectId} />
-          <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
-          <ReviewQueue reviews={reviews} onReviewed={async () => {
-            await fetchReviews();
-            await fetchDocuments(selectedProjectId);
-          }} />
+          <SiteReadyOverview totals={overview} />
+          <NotificationPanel
+            notifications={notifications}
+            onRead={handleNotificationRead}
+            onReminded={() => {
+              void fetchNotifications(selectedProjectId);
+            }}
+          />
+          {reviews.length > 0 && (
+            <ReviewQueue
+              reviews={reviews}
+              onReviewed={async () => {
+                await refreshProjectData(selectedProjectId);
+              }}
+            />
+          )}
           <DocumentList
-            documents={documents}
+            crew={filteredCrew ?? crew}
             projects={projects}
             selectedProjectId={selectedProjectId}
             onProjectChange={setSelectedProjectId}
             onCreateProject={handleCreateProject}
-            onUpload={uploadFile}
+            onUpload={uploadFiles}
             onDelete={handleDeleteDocument}
+            onCrewChanged={async () => {
+              await refreshProjectData(selectedProjectId);
+            }}
             uploading={uploading}
             uploadError={error}
+          />
+          <DocumentTools
+            selectedProjectId={selectedProjectId}
+            searchQuery={searchQuery}
+            searching={searching}
+            searchSummary={searchSummary}
+            onSearchQueryChange={setSearchQuery}
+            onSearch={() => void searchDocuments()}
+            onClearSearch={() => void clearSearch()}
           />
 
           <Tooltip title="View Source Code" arrow>

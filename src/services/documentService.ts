@@ -6,7 +6,9 @@ import { buildDocumentSearchSummary, extractExpiryWindowDays, tokenizeSearchTerm
 import { daysUntilExpiry } from '../utils/dateUtils';
 import { sanitizeFileName } from '../utils/fileUtils';
 import { formatDocumentListItem } from '../utils/documentFormatter';
-import { computeDocumentOverview } from '../utils/overviewUtils';
+import { collapseDuplicateDocuments } from '../utils/documentDedupe';
+import { computeCrewOverview } from '../utils/overviewUtils';
+import { EXPIRING_THIS_WEEK_DAYS } from '../utils/opsStatus';
 import { enforceGeminiQueuePolicy, enforceUploadIntentPolicy } from './usagePolicyService';
 import type { Document } from '@prisma/client';
 import type { ExtractedDocumentData } from '../models/Document';
@@ -15,6 +17,7 @@ import { getProjectForUser } from './projectService';
 
 const UPLOAD_URL_EXPIRY_SECONDS = 5 * 60;
 const MAX_OVERVIEW_RECORDS = 500;
+const MAX_DOCUMENT_LIST_RECORDS = 200;
 
 const assertProjectAccess = async (userId: string, projectId: number) => {
   const project = await getProjectForUser(userId, projectId);
@@ -100,12 +103,37 @@ export const createUploadIntent = async (
   };
 };
 
-export const markDocumentPendingAndQueue = async (document: Document) => {
+export const findDuplicateDocument = async (
+  userId: string,
+  projectId: number,
+  contentHash: string,
+  excludeId?: string,
+) => {
+  return prisma.document.findFirst({
+    where: {
+      userId,
+      projectId,
+      contentHash,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      status: { in: ['pending', 'processed'] },
+    },
+    orderBy: { uploadDate: 'desc' },
+  });
+};
+
+export const markDocumentPendingAndQueue = async (
+  document: Document,
+  extras?: { contentHash?: string | null; byteSize?: number | null },
+) => {
   await enforceGeminiQueuePolicy(document.userId);
 
   const updatedDoc = await prisma.document.update({
     where: { id: document.id },
-    data: { status: 'pending' },
+    data: {
+      status: 'pending',
+      ...(extras?.contentHash ? { contentHash: extras.contentHash } : {}),
+      ...(extras?.byteSize != null ? { byteSize: extras.byteSize } : {}),
+    },
   });
 
   if (typeof addDocumentJob === 'function') {
@@ -122,7 +150,7 @@ export const getAllDocuments = async (userId: string, projectId?: number) => {
       ...(projectId != null ? { projectId } : {}),
     },
     orderBy: { uploadDate: 'desc' },
-    take: 20,
+    take: MAX_DOCUMENT_LIST_RECORDS,
     include: {
       evaluations: {
         orderBy: { createdAt: 'desc' },
@@ -131,7 +159,7 @@ export const getAllDocuments = async (userId: string, projectId?: number) => {
     },
   });
 
-  return docs.map(formatDocumentListItem);
+  return collapseDuplicateDocuments(docs.map(formatDocumentListItem));
 };
 
 export const getDocumentStatusById = async (id: string, userId: string) => {
@@ -173,19 +201,44 @@ export const deleteDocumentForUser = async (documentId: string, userId: string) 
   return { id: doc.id };
 };
 
-export const getDocumentOverview = async (expiringWithinDays: number, limit: number) => {
+export const getDocumentOverview = async (
+  userId: string,
+  projectId: number | undefined,
+  expiringWithinDays = EXPIRING_THIS_WEEK_DAYS,
+) => {
   const docs = await prisma.document.findMany({
+    where: {
+      userId,
+      ...(projectId != null ? { projectId } : {}),
+    },
     select: {
       id: true,
       originalName: true,
       status: true,
       extractedData: true,
+      contentHash: true,
     },
     orderBy: { uploadDate: 'desc' },
     take: MAX_OVERVIEW_RECORDS,
   });
 
-  return computeDocumentOverview(docs, expiringWithinDays, limit);
+  const mapped = docs.map(doc => {
+    const extracted = doc.extractedData as ExtractedDocumentData | null;
+    return {
+      id: doc.id,
+      name: doc.originalName,
+      originalName: doc.originalName,
+      status: doc.status,
+      contentHash: doc.contentHash,
+      extraction: {
+        expiryDate: extracted?.expiryDate,
+        holderName: extracted?.holderName,
+        licenseNumber: extracted?.licenseNumber,
+      },
+    };
+  });
+
+  return computeCrewOverview(mapped, expiringWithinDays);
 };
 
 export const searchProcessedDocuments = async (
@@ -240,9 +293,9 @@ export const searchProcessedDocuments = async (
         score: matchedTerms.length + (matchesExpiryWindow && expiryWindowDays != null ? 2 : 0),
       };
     })
-    .filter(doc => doc !== null)
-    .sort((a, b) => b.score - a.score)
-    .map(({ score, ...doc }) => doc);
+    .filter(doc => doc !== null);
+
+  const collapsed = collapseDuplicateDocuments(results);
 
   return {
     query,
@@ -250,7 +303,9 @@ export const searchProcessedDocuments = async (
       keywords: keywordTerms,
       expiryWithinDays: expiryWindowDays,
     },
-    results,
+    results: collapsed
+      .sort((a, b) => b.score - a.score)
+      .map(({ score, ...doc }) => doc),
   };
 };
 
