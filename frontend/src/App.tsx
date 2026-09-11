@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { DocumentList } from './components/DocumentList';
 import { NotificationPanel } from './components/NotificationPanel';
 import { AskDocuments } from './components/AskDocuments';
+import { ReviewQueue } from './components/ReviewQueue';
 import { useAuth, api } from './auth/AuthContext';
 import type { DocumentItem, NotificationItem, ProjectItem } from './types';
 import GitHubIcon from '@mui/icons-material/GitHub';
@@ -28,6 +29,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchSummary, setSearchSummary] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<DocumentItem[]>([]);
 
   const fetchProjects = async () => {
     const res = await api.get<{ projects: ProjectItem[] }>('/api/projects');
@@ -40,6 +42,15 @@ export default function App() {
     const res = await api.get('/api/documents', { params });
     setDocuments(res.data);
   }, []);
+
+  const fetchReviews = async () => {
+    try {
+      const res = await api.get<{ reviews: DocumentItem[] }>('/api/reviews');
+      setReviews(res.data.reviews);
+    } catch (err) {
+      console.error('Failed to fetch reviews', err);
+    }
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -56,6 +67,7 @@ export default function App() {
       setProjects([]);
       setSelectedProjectId(null);
       setNotifications([]);
+      setReviews([]);
       return;
     }
 
@@ -66,6 +78,7 @@ export default function App() {
       }
     })();
     void fetchNotifications();
+    void fetchReviews();
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -133,9 +146,20 @@ export default function App() {
 
           setDocuments((prev) =>
             prev.map((doc) =>
-              doc.id === docId ? { ...doc, status: data.status, extraction: data.extraction } : doc,
+              doc.id === docId
+                ? {
+                    ...doc,
+                    status: data.status,
+                    extraction: data.extraction,
+                    processingError: data.processingError,
+                    evaluation: data.evaluation,
+                  }
+                : doc,
             ),
           );
+          if (data.evaluation?.reviewStatus === 'pending' || data.status === 'failed') {
+            void fetchReviews();
+          }
         }
       } catch (err) {
         console.error('Polling error', err);
@@ -265,6 +289,10 @@ export default function App() {
           </Paper>
           <AskDocuments selectedProjectId={selectedProjectId} />
           <NotificationPanel notifications={notifications} onRead={handleNotificationRead} />
+          <ReviewQueue reviews={reviews} onReviewed={async () => {
+            await fetchReviews();
+            await fetchDocuments(selectedProjectId);
+          }} />
           <DocumentList
             documents={documents}
             projects={projects}

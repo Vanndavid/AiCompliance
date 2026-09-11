@@ -36,7 +36,7 @@ The result:
 Instead of manual data entry:
 
 > A user uploads a document.
-The system extracts structured data, tracks the expiry date, and reminds them before it becomes a problem.
+The system extracts structured data, evaluates it for compliance issues, applies deterministic rules, and routes uncertain or flagged cases to a human reviewer.
 
 The system is designed as an **internal operations tool**, not a public marketplace.
 
@@ -44,12 +44,15 @@ The system is designed as an **internal operations tool**, not a public marketpl
 
 ## Key Features
 
-### 1. AI-Based Document Extraction
+### 1. AI-Based Document Extraction and Evaluation
 - Accepts photos or scans of documents
 - Uses multimodal AI to extract:
-  - Expiry date
+  - Expiry date and issue date
   - License / certificate number
   - Holder name
+  - Verbatim per-page text (for retrieval)
+- The same model call also returns a structured compliance evaluation:
+  - decision, risk, confidence, issue type, explanation, and evidence quotes
 - Handles varied layouts and low-quality images
 
 ### 2. Ask Your Documents (Retrieval)
@@ -70,10 +73,11 @@ The system is designed as an **internal operations tool**, not a public marketpl
   - Valid
 
 ### 4. Asynchronous Processing
-- Document analysis runs in background workers
+- Document analysis runs in background workers (SQS + Lambda, or local BullMQ)
 - Uploads return immediately
 - Prevents UI blocking and API timeouts
 - Scales independently of user traffic
+- Invalid model JSON is stored as `failed` with `processingError`, not as a successful extraction
 
 ### 5. Compliance Monitoring & Alerts
 - Scheduled jobs scan documents daily
@@ -81,35 +85,57 @@ The system is designed as an **internal operations tool**, not a public marketpl
 - Sends automated reminders via email/SMS
 
 ### 6. Compliance Overview API
-- New endpoint: `GET /api/documents/overview`
+- Endpoint: `GET /api/documents/overview`
 - Returns compliance-ready totals (`expired`, `expiringSoon`, `valid`, `missingExpiry`, etc.)
 - Supports configurable expiry windows via `expiringWithinDays` query param
 - Includes nearest expiring documents for dashboards and audit workflows
 
-### 7. Human Override (Important)
-- AI decisions can be manually overridden
-- Final compliance responsibility remains with humans
-- Demonstrates responsible AI usage in production systems
+### 7. Human Review and Override
+- Flagged, high-risk, or low-confidence evaluations enter a review queue
+- Reviewers see the document, AI decision, confidence, severity, evidence, and extracted fields
+- Approve confirms the routed decision; reject records a human override
+- The model is never the final authority
 
 ---
 
 ## System Architecture
 
-High-level flow:
+```mermaid
+flowchart TD
+  upload[User uploads document] --> s3[Presigned S3 PUT]
+  s3 --> queue[SQS or BullMQ]
+  queue --> llm[Gemini extraction plus evaluation]
+  llm --> validate[Validate model JSON]
+  validate -->|invalid| failed[status failed plus processingError]
+  validate --> extract[Persist extractedData for RAG]
+  extract --> rules[Deterministic compliance rules]
+  rules --> route[Confidence and risk routing]
+  route -->|high-confidence low-risk clear| clear[CLEAR]
+  route -->|flagged high-risk or uncertain| review[FLAGGED pending review]
+  review --> human[Reviewer approve or override]
+  clear --> audit[DocumentEvaluation audit row]
+  human --> audit
+```
 
-User uploads document
-→ API stores file
-→ Job queued (Redis / BullMQ)
-→ AI worker analyzes document
-→ Structured metadata saved
-→ Compliance status updated
-→ UI reflects status
-→ Scheduler sends reminders
+The API is the write authority. Lambda reports raw model JSON; `applyProcessingResult` validates it, runs rules, routes the case, and persists an append-only `DocumentEvaluation`. Local Node workers call the same function so they cannot skip validation.
 
 ### Why this architecture?
 - AI calls are slow and unreliable → async processing
-- External APIs (AI, SMS) → isolation & retries
-- Compliance logic must be auditable → structured storage
+- Model output is untrusted → schema validation before it reaches Postgres
+- Calendar facts must not depend on the model → deterministic rules
+- Compliance decisions must be auditable → evaluation rows keep model id, prompt version, evidence, and reviewer action even after prompts change
+
+---
+
+## AI evaluation flow
+
+1. **LLM (advisory).** Gemini returns extraction fields plus `decision`, `risk`, `confidence`, `issueType`, `explanation`, and `evidence`. Prompt version: `compliance-eval-v1`.
+2. **Validation.** `parseLlmEvaluation` treats the payload as untrusted input. Malformed JSON, invalid enums, confidence outside 0–1, or broken evidence never become a `processed` document. The document is marked `failed` with `processingError: invalid_model_output`, and the worker callback still returns 200 so SQS does not retry a permanently bad schema. Transient Gemini/S3 errors still throw and retry.
+3. **Deterministic rules.** Separate from the model. They flag expired documents, missing expiry/licence number, unparseable dates, issue date after expiry, and “model said clear but the date is already past.”
+4. **Routing.** Auto-CLEAR only when there are no rule hits, the model is `clear`, risk is `low`, and confidence ≥ 0.8. Flagged, high-risk, uncertain, or low-confidence results enter the review queue. Thresholds live as named constants in `src/services/compliance/routing.ts`.
+5. **Human review.** `GET /api/reviews` lists pending cases. `POST /api/documents/:id/review` records approve or reject/override with reviewer id and timestamp.
+
+The LLM proposes; rules can escalate; humans can override.
 
 ---
 
@@ -118,17 +144,18 @@ User uploads document
 ### Backend
 - Node.js + TypeScript
 - Express
-- BullMQ + Redis (background jobs) X AWS SQS + Lambda
-- MongoDB (flexible document schemas)
+- PostgreSQL + Prisma + pgvector
+- AWS SQS + Lambda (production path)
+- BullMQ + Redis (optional local path)
 
 ### AI
-- Google Gemini (Multimodal Vision + Reasoning)
-- Structured JSON extraction
+- Google Gemini (multimodal extraction, evaluation, RAG answers, embeddings)
+- Structured JSON with an explicit validation layer
 
 ### Frontend
 - React
 - Material UI
-- Simple dashboard with traffic-light status indicators
+- Dashboard with document list plus a review queue
 
 ### Infrastructure
 - Docker
@@ -145,19 +172,12 @@ Traditional OCR fails on:
 - Inconsistent layouts
 - Jurisdiction-specific logic
 
-Multimodal AI allows **extraction + reasoning**, not just text recognition.
+Multimodal AI allows **extraction + reasoning**, not just text recognition. Reasoning is still checked by deterministic rules.
 
 ---
 
-### Why MongoDB?
-Different document types (licenses, insurance, certifications) have:
-- Different required fields
-- Different validation rules
-
-A flexible schema simplifies iteration while still allowing indexing on:
-- Expiry dates
-- Document type
-- User ID
+### Why PostgreSQL?
+Relational storage holds users, projects, documents, and an append-only evaluation audit trail with enforced foreign keys. `extractedData` remains JSON for heterogeneous document types. pgvector on the same database powers retrieval without a second store.
 
 ---
 
@@ -174,27 +194,84 @@ Using queues allows:
 
 ## Trade-offs
 
-Design decisions here are deliberate compromises between speed-to-value for a prototype and long-run operational rigidity.
+Design decisions here are deliberate compromises between a credible production-minded workflow and keeping the prototype maintainable.
 
 ### AI extraction vs OCR or manual rules
 **Gains:** Handles messy scans, handwritten fields, and layout variety that brittle parsers miss.  
-**Costs:** Higher per-document cost and latency than pure OCR, nondeterministic edge cases, and a need for human override and monitoring. Regulatory liability still sits with humans, not the model.
+**Costs:** Higher per-document cost and latency than pure OCR, nondeterministic edge cases. Regulatory liability still sits with humans, not the model.
 
-### Document database (MongoDB) vs relational SQL
-**Gains:** Heterogeneous document types can evolve without migration churn; easy to attach semi-structured AI output.  
-**Costs:** Fewer enforced cross-entity constraints at the DB layer; complex reporting and strict audit schemas may eventually push toward clearer boundaries or complementary stores.
+### Deterministic rules vs trusting the model
+**Gains:** Expiry, missing fields, and contradictory dates do not depend on Gemini. The architecture makes it obvious which decisions came from which layer.  
+**Costs:** Rules only cover this product’s domain (licences, certificates, insurance). They are not a general policy engine.
+
+### Append-only evaluations vs overwriting JSON
+**Gains:** Historical decisions remain understandable after a prompt or model change (`modelId` + `promptVersion` are stored on each row).  
+**Costs:** Extra table and queries for “latest evaluation.”
+
+### Owner-as-reviewer vs moderator RBAC
+**Gains:** Fits the existing single-user auth model; still records `reviewerId` and timestamp.  
+**Costs:** A production moderation squad would use dedicated reviewer roles and an independent queue. That is an explicit next step, not a fake role system.
+
+### One Gemini call vs a second evaluation pass
+**Gains:** No extra latency or cost; extraction and evaluation stay in sync.  
+**Costs:** The extraction prompt and the Lambda copy of it must stay aligned (`compliance-eval-v1`).
+
+### PostgreSQL JSON extraction vs a fully normalised schema
+**Gains:** Heterogeneous document types can evolve without a migration per field; RAG still reads `extractedData.pages`.  
+**Costs:** Fewer DB-level constraints on extracted fields; validation lives in application code.
 
 ### Asynchronous workers vs synchronous API responses
-**Gains:** APIs stay fast and tolerant of slow or flaky AI and messaging providers; workers can retry and scale out.  
-**Costs:** Stronger reliance on queues, observability, and idempotent jobs—users see eventual consistency until processing finishes.
+**Gains:** APIs stay fast and tolerant of slow or flaky AI providers; workers can retry and scale out.  
+**Costs:** Users see eventual consistency until processing finishes. Permanent schema failures are stored, not retried forever.
 
 ### Cloud queue & object storage vs Redis and local disks
 **Gains:** Durable uploads, managed scaling, and a path to production-aligned deployments.  
-**Costs:** More moving pieces, credentials, and local-dev setup than an all-on-one-machine stack; tighter coupling to a cloud provider unless abstractions stay thin.
+**Costs:** More moving pieces than an all-on-one-machine stack.
 
 ### Prototype breadth vs enterprise controls
-**Gains:** The core workflow (upload → extract → track → remind) ships first with hosted auth and billing scaffolding.  
-**Costs:** Subscription state syncing, granular entitlements, org-wide tenancy, and full notification hardening remain follow-on work—not hidden, but consciously deferred.
+**Gains:** The core workflow (upload → evaluate → route → review) ships with JWT auth and billing scaffolding.  
+**Costs:** Subscription state syncing, org-wide tenancy, and dedicated moderator teams remain follow-on work.
+
+---
+
+## Testing strategy
+
+Backend tests use Jest and Supertest. External Gemini and AWS calls are mocked. The suite covers:
+
+- Successful API requests and authentication (`auth`, `document`, `project`, `ask`)
+- Validation of malformed LLM JSON
+- Deterministic compliance rules
+- Confidence / routing decisions
+- Worker callback success, auth failure, and invalid model output (document marked failed, callback still 200)
+- Human approve and reject/override, plus 401 / 404 / 409 paths
+
+```bash
+npm test
+```
+
+---
+
+## Evaluation harnesses
+
+There are two harnesses. Neither is a claim of production accuracy.
+
+### Retrieval / answer eval
+
+Requires Postgres with pgvector and a `GEMINI_API_KEY`. See [docs/ask-your-documents.md](docs/ask-your-documents.md).
+
+```bash
+npm run eval
+```
+
+### Compliance decision eval
+
+Runs the synthetic dataset in `eval/compliance/dataset.ts` through parse → rules → route. No live LLM. Measures correct decisions, false positives (flagged when gold is clear), and false negatives (cleared when gold is flagged). Writes `eval/compliance/results.json` with `promptVersion` so later prompt or threshold changes can be compared.
+
+```bash
+npm run eval:compliance
+```
+
+Cases include a valid document, expired certification, missing information, contradictory dates, ambiguous/low-confidence output, and an expired high-risk work licence. This is an engineering regression harness, not proof of model performance in the real world.
 
 ---
 
@@ -206,7 +283,7 @@ Design decisions here are deliberate compromises between speed-to-value for a pr
 **Goal:** Prove reliable extraction from real documents
 
 ### Phase 2 – Application Layer
-- [x] MongoDB schemas (User, Document)
+- [x] MongoDB schemas (User, Document) → replaced by PostgreSQL / Prisma
 - [x] File upload handling
 - [x] BullMQ worker pipeline  
 **Goal:** Reliable storage & processing pipeline
@@ -239,7 +316,7 @@ Payments now use a hosted Stripe Checkout flow:
 
 What is still intentionally left for the next SaaS step:
 
-- Stripe webhooks to persist subscription state in MongoDB
+- Stripe webhooks to persist subscription state in PostgreSQL
 - Entitlement checks that gate features by plan
 - Organization-level billing once multi-tenancy is complete
 
@@ -323,9 +400,10 @@ The React app uses in-memory JWT auth via `AuthProvider`:
 2. System processes it asynchronously
 3. Expiry date is extracted and validated
 4. Status appears as:
-   - 🟢 Valid
-   - 🟡 Expiring soon
-   - 🔴 Expired
+   - Clear (auto or after approval)
+   - Needs review
+   - Overridden
+   - Failed
 5. Reminder is automatically scheduled
 
 ---
@@ -350,7 +428,7 @@ Authentication & Access Control
 
 - User authentication and role-based access (e.g. admin vs viewer)
 - Organisation-level document ownership
-- Audit logs for document changes and overrides
+- Audit logs for document changes and overrides → evaluation rows now capture AI + reviewer decisions; dedicated moderator RBAC is still out of scope
 
 Cloud & Infrastructure
 - Object storage for uploads (e.g. S3-compatible storage)

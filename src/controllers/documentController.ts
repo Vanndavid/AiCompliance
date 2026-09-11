@@ -15,9 +15,8 @@ import {
   searchProcessedDocuments,
 } from '../services/documentService';
 import { getUnreadNotifications, markNotificationRead } from '../services/notificationService';
-import { getStoredPages, ingestDocumentChunks } from '../services/ragIngestService';
-import type { ExtractedDocumentData } from '../models/Document';
-import { DocumentStatus } from '@prisma/client';
+import { applyProcessingResult } from '../services/compliance/applyProcessingResult';
+import { formatEvaluation, latestEvaluation } from '../utils/documentFormatter';
 
 type UploadedFileData = {
   originalname: string;
@@ -194,12 +193,19 @@ export const getDocumentStatus = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Document id is required' });
     }
 
-    const doc = await getDocumentStatusById(id);
+    const userId = getRequestUserId(req);
+    const doc = await getDocumentStatusById(id, userId);
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    res.json({ status: doc.status, extraction: doc.extractedData });
+    const evaluation = latestEvaluation(doc);
+    res.json({
+      status: doc.status,
+      extraction: doc.extractedData,
+      processingError: doc.processingError,
+      evaluation: evaluation ? formatEvaluation(evaluation) : null,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch status' });
@@ -225,41 +231,37 @@ export const updateDocumentProcessingResult = async (req: Request, res: Response
       return res.status(400).json({ error: 'Document id is required' });
     }
 
-    const { status, extractedData } = req.body as { status: DocumentStatus; extractedData: ExtractedDocumentData };
+    const { status, extractedData, modelId, processingError } = req.body as {
+      status?: string;
+      extractedData?: unknown;
+      modelId?: string;
+      processingError?: string;
+    };
     if (status !== 'processed' && status !== 'failed') {
       return res.status(400).json({ error: 'Invalid processing status' });
     }
 
-    var data = { status: status, extractedData: extractedData };
-    const updatedDoc = await prisma.document.update({
-        where: { id },
-        data: data,
+    const updatedDoc = await applyProcessingResult(id, {
+      status,
+      extractedData,
+      modelId,
+      processingError,
     });
-
-    // Index the document for retrieval. Extraction has already been paid for and
-    // persisted at this point, so an embedding failure must not fail the
-    // callback - that would make SQS redeliver and re-run the vision call. The
-    // document is left unindexed instead, and `npm run rag:reindex` can pick it
-    // up without another extraction pass.
-    if (status === 'processed') {
-      try {
-        const pages = getStoredPages(updatedDoc.extractedData);
-        const result = await ingestDocumentChunks(updatedDoc.id, pages);
-        console.log(`Indexed ${result.chunksCreated} chunks for document ${updatedDoc.id}`);
-      } catch (indexError) {
-        console.error(`Failed to index document ${updatedDoc.id} for retrieval:`, indexError);
-      }
-    }
 
     res.json({
       success: true,
       document: {
         id: updatedDoc.id,
         status: updatedDoc.status,
+        processingError: updatedDoc.processingError,
       },
     });
   } catch (error) {
     console.error('Failed to update document processing result:', error);
+    const prismaError = error as { code?: string };
+    if (prismaError.code === 'P2025') {
+      return res.status(404).json({ error: 'Document not found' });
+    }
     res.status(500).json({ error: 'Failed to update document processing result' });
   }
 };

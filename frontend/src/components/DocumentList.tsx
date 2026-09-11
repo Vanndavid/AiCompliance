@@ -27,7 +27,7 @@ import ArticleIcon from '@mui/icons-material/Article';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import CircularProgress from '@mui/material/CircularProgress';
-import type { AiExtraction, DocumentItem, ProjectItem } from '../types';
+import type { AiExtraction, DocumentEvaluation, DocumentItem, ProjectItem } from '../types';
 import { useState } from 'react';
 import { api } from '../api/client';
 import { CompactUploadButton } from './CompactUploadButton';
@@ -61,19 +61,35 @@ export const DocumentList = ({
   const [creatingProject, setCreatingProject] = useState(false);
   const [createProjectError, setCreateProjectError] = useState<string | null>(null);
 
-  const getStatusChip = (status: string, extraction?: AiExtraction) => {
-    if (status === 'pending') {
+  const getStatusChip = (status: string, evaluation?: DocumentEvaluation | null, extraction?: AiExtraction) => {
+    if (status === 'pending' || status === 'uploading') {
       return <Chip icon={<CircularProgress size={16} />} label="Processing" color="warning" variant="outlined" />;
     }
     if (status === 'failed') {
       return <Chip icon={<ErrorIcon />} label="Failed" color="error" variant="outlined" />;
     }
 
+    if (evaluation?.reviewStatus === 'pending') {
+      return <Chip icon={<ErrorIcon />} label="Needs review" color="warning" variant="outlined" />;
+    }
+    if (evaluation?.reviewStatus === 'approved') {
+      return <Chip icon={<CheckCircleIcon />} label="Approved" color="success" variant="outlined" />;
+    }
+    if (evaluation?.reviewStatus === 'rejected') {
+      return <Chip icon={<ErrorIcon />} label="Overridden" color="info" variant="outlined" />;
+    }
+    if (evaluation?.finalDecision === 'flagged') {
+      return <Chip icon={<ErrorIcon />} label="Flagged" color="error" variant="outlined" />;
+    }
+    if (evaluation?.finalDecision === 'clear') {
+      return <Chip icon={<CheckCircleIcon />} label="Clear" color="success" variant="outlined" />;
+    }
+
     const isValid = extraction?.expiryDate && extraction?.licenseNumber;
     return (
       <Chip
         icon={<CheckCircleIcon />}
-        label={isValid ? 'Valid' : 'Review'}
+        label={isValid ? 'Clear' : 'Needs review'}
         color={isValid ? 'success' : 'info'}
         variant="outlined"
       />
@@ -214,7 +230,7 @@ export const DocumentList = ({
                           {doc.name}
                         </Link>
                       </Typography>
-                      {getStatusChip(doc.status, doc.extraction)}
+                      {getStatusChip(doc.status, doc.evaluation, doc.extraction)}
                     </Box>
 
                     {doc.status === 'processed' && doc.extraction && (
@@ -264,9 +280,15 @@ export const DocumentList = ({
                       </Typography>
                     )}
 
+                    {doc.status === 'processed' && doc.evaluation && (
+                      <Typography variant="body2" color="text.secondary" mt={1}>
+                        {doc.evaluation.routingReason}
+                      </Typography>
+                    )}
+
                     {doc.status === 'failed' && (
                       <Typography variant="body2" color="error" mt={1}>
-                        Analysis failed.
+                        Analysis failed{doc.processingError ? `: ${doc.processingError}` : '.'}
                       </Typography>
                     )}
                   </Box>

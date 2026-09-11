@@ -22,7 +22,31 @@ enum NotificationType {
   SYSTEM_INFO
 }
 
-model User { 
+enum LlmDecision {
+  clear
+  flagged
+  uncertain
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
+enum ComplianceDecision {
+  clear
+  flagged
+}
+
+enum ReviewStatus {
+  not_required
+  pending
+  approved
+  rejected
+}
+
+model User {
   id    String    @id @default(uuid())
   name  String
   email String    @unique
@@ -31,23 +55,62 @@ model User {
   documents Document[]
   notifications Notification[]
   projects Project[]
+  reviews DocumentEvaluation[] @relation("EvaluationReviewer")
 }
 
 model Document {
-  id            String         @id @default(uuid())
-  userId        String
-  originalName  String
-  storagePath   String
-  mimeType      String
-  uploadDate    DateTime       @default(now())
-  status        DocumentStatus @default(pending)
-  extractedData Json?
-  projectId     Int
-  notifications Notification[]
-  chunks        DocumentChunk[]
+  id               String         @id @default(uuid())
+  userId           String
+  originalName     String
+  storagePath      String
+  mimeType         String
+  uploadDate       DateTime       @default(now())
+  status           DocumentStatus @default(pending)
+  extractedData    Json?
+  processingError  String?
+  projectId        Int
+  notifications    Notification[]
+  chunks           DocumentChunk[]
+  evaluations      DocumentEvaluation[]
 
-  user          User           @relation(fields:[userId], references: [id])
-  project       Project          @relation(fields:[projectId], references: [id])
+  user             User           @relation(fields:[userId], references: [id])
+  project          Project        @relation(fields:[projectId], references: [id])
+}
+
+/// One compliance evaluation of a document. Reprocessing inserts a new row so
+/// earlier model/prompt versions remain auditable.
+model DocumentEvaluation {
+  id               String              @id @default(uuid())
+  documentId       String
+  createdAt        DateTime            @default(now())
+
+  modelId          String
+  promptVersion    String
+
+  llmDecision      LlmDecision
+  risk             RiskLevel
+  confidence       Float
+  issueType        String?
+  explanation      String
+  evidence         Json
+
+  ruleHits         Json
+
+  finalDecision    ComplianceDecision
+  needsReview      Boolean
+  routingReason    String
+
+  reviewStatus     ReviewStatus
+  reviewerId       String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  overrideDecision ComplianceDecision?
+
+  document         Document            @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  reviewer         User?               @relation("EvaluationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([documentId, createdAt])
+  @@index([reviewStatus])
 }
 
 model Project {

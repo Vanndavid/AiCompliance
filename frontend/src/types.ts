@@ -1,10 +1,44 @@
 export interface AiExtraction {
   docType?: string;
   expiryDate?: string;
+  issueDate?: string;
   licenseNumber?: string;
   holderName?: string;
   confidence?: number;
   content?: string;
+}
+
+export interface EvaluationEvidence {
+  quote: string;
+  page?: number;
+}
+
+export interface RuleHit {
+  code: string;
+  severity: 'low' | 'medium' | 'high';
+  message: string;
+}
+
+export interface DocumentEvaluation {
+  id: string;
+  createdAt: string;
+  modelId: string;
+  promptVersion: string;
+  llmDecision: 'clear' | 'flagged' | 'uncertain';
+  risk: 'low' | 'medium' | 'high';
+  confidence: number;
+  issueType: string | null;
+  explanation: string;
+  evidence: EvaluationEvidence[];
+  ruleHits: RuleHit[];
+  finalDecision: 'clear' | 'flagged';
+  needsReview: boolean;
+  routingReason: string;
+  reviewStatus: 'not_required' | 'pending' | 'approved' | 'rejected';
+  reviewerId: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  overrideDecision: 'clear' | 'flagged' | null;
 }
 
 export interface ProjectItem {
@@ -16,9 +50,11 @@ export interface ProjectItem {
 export interface DocumentItem {
   id: string;
   name: string;
-  status: 'pending' | 'processed' | 'failed';
+  status: 'uploading' | 'pending' | 'processed' | 'failed';
   storagePath: string;
   extraction?: AiExtraction;
+  processingError?: string | null;
+  evaluation?: DocumentEvaluation | null;
   matchReasons?: string[];
 }
 

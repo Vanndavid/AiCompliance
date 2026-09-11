@@ -40,5 +40,9 @@ Thumbs.db
 lambdaWorker/node_modules/
 lambdaWorker.zip
 
-# Eval run artifact
+# Eval run artifacts
 eval/results.json
+eval/compliance/results.json
+
+# Generated sample documents for manual testing
+sample-documents/

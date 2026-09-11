@@ -115,22 +115,33 @@ export const markDocumentPendingAndQueue = async (document: Document) => {
 };
 
 export const getAllDocuments = async (userId: string, projectId?: number) => {
-  const docs: Document[] = await prisma.document.findMany({
+  const docs = await prisma.document.findMany({
     where: {
       userId,
       ...(projectId != null ? { projectId } : {}),
     },
     orderBy: { uploadDate: 'desc' },
     take: 20,
+    include: {
+      evaluations: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
   });
 
-  // Use a small formatter so tests can validate the transformation separately
   return docs.map(formatDocumentListItem);
 };
 
-export const getDocumentStatusById = async (id: string) => {
-  return prisma.document.findUnique({
-    where: { id },
+export const getDocumentStatusById = async (id: string, userId: string) => {
+  return prisma.document.findFirst({
+    where: { id, userId },
+    include: {
+      evaluations: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
   });
 };
 
@@ -165,6 +176,12 @@ export const searchProcessedDocuments = async (
     },
     orderBy: { uploadDate: 'desc' },
     take: 100,
+    include: {
+      evaluations: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
   });
 
   const results = docs
@@ -190,11 +207,7 @@ export const searchProcessedDocuments = async (
       }
 
       return {
-        id: doc.id,
-        name: doc.originalName,
-        status: doc.status,
-        storagePath: doc.storagePath,
-        extraction: doc.extractedData,
+        ...formatDocumentListItem(doc),
         matchReasons: reasons,
         score: matchedTerms.length + (matchesExpiryWindow && expiryWindowDays != null ? 2 : 0),
       };

@@ -4,7 +4,7 @@ import { Worker } from 'bullmq';
 import connection from '../config/redis';
 import { DOCUMENT_QUEUE_NAME } from '../queues/documentQueue';
 import { analyzeDocument } from '../services/geminiService';
-import prisma from '../config/prisma';
+import { applyProcessingResult } from '../services/compliance/applyProcessingResult';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -29,23 +29,12 @@ export const worker = new Worker<DocumentJobData>(DOCUMENT_QUEUE_NAME, async (jo
     const aiResult = await analyzeDocument(filePath, mimeType);
     console.log(`AI analysis complete for ${docId}`);
 
-    // 2. Update Database
-    const updatedDoc = await prisma.document.update({
-      where: { id: docId },
-      data: {
-        status: 'processed',
-        extractedData: {
-          docType: aiResult.type,
-          expiryDate: aiResult.expiryDate,
-          licenseNumber: aiResult.licenseNumber,
-          holderName: aiResult.name,
-          confidence: aiResult.confidence,
-          content: aiResult.content,
-        },
-      },
+    const updatedDoc = await applyProcessingResult(docId, {
+      status: 'processed',
+      extractedData: aiResult,
     });
 
-    console.log(`Document updated: ${updatedDoc?.id}`);
+    console.log(`Document updated: ${updatedDoc.id}`);
     return aiResult;
 
   } catch (error) {
@@ -53,9 +42,9 @@ export const worker = new Worker<DocumentJobData>(DOCUMENT_QUEUE_NAME, async (jo
     
     // Mark DB as failed
     if (job.data.docId) {
-      await prisma.document.update({
-        where: { id: job.data.docId },
-        data: { status: 'failed' },
+      await applyProcessingResult(job.data.docId, {
+        status: 'failed',
+        processingError: error instanceof Error ? error.message : 'processing_failed',
       });
     }
     throw error;

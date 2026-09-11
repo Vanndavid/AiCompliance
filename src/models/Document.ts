@@ -6,6 +6,7 @@ export type ExtractedDocumentPage = {
 export type ExtractedDocumentData = {
   docType?: string;
   expiryDate?: string;
+  issueDate?: string;
   licenseNumber?: string;
   holderName?: string;
   confidence?: number;

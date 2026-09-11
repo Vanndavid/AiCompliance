@@ -1,6 +1,6 @@
 import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } from "@aws-sdk/client-sqs";
 import { analyzeDocument } from "../services/geminiService";
-import prisma from "../config/prisma";
+import { applyProcessingResult } from "../services/compliance/applyProcessingResult";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -57,24 +57,12 @@ export const startWorker = async () => {
         const aiResult = await analyzeDocument(filePath, mimeType);
         console.log(`AI analysis complete for ${docId}`);
 
-        // 3. Update Database (Exactly as before)
-        const updatedDoc = await prisma.document.update({
-          where: { id: docId },
-          data: {
-            status: 'processed',
-            extractedData: {
-              docType: aiResult.type,
-              expiryDate: aiResult.expiryDate,
-              licenseNumber: aiResult.licenseNumber,
-              holderName: aiResult.name,
-              confidence: aiResult.confidence,
-              content: aiResult.content,
-              pages: Array.isArray(aiResult.pages) ? aiResult.pages : [],
-            },
-          },
+        const updatedDoc = await applyProcessingResult(docId, {
+          status: 'processed',
+          extractedData: aiResult,
         });
 
-        console.log(`Document updated: ${updatedDoc?.id}`);
+        console.log(`Document updated: ${updatedDoc.id}`);
 
         // 4. DELETE Message (Success!)
         // SQS doesn't auto-delete. We must tell it we are done.
@@ -91,9 +79,9 @@ export const startWorker = async () => {
         // Mark DB as failed
         const body = JSON.parse(message.Body!); // Re-parse safely to get ID
         if (body.docId) {
-          await prisma.document.update({
-            where: { id: body.docId },
-            data: { status: 'failed' }
+          await applyProcessingResult(body.docId, {
+            status: 'failed',
+            processingError: processingError instanceof Error ? processingError.message : 'processing_failed',
           });
         }
         

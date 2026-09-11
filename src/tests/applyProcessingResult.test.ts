@@ -1,0 +1,119 @@
+jest.mock('../config/prisma', () => ({
+  __esModule: true,
+  default: {
+    document: {
+      update: jest.fn(),
+    },
+  },
+}));
+
+jest.mock('../services/ragIngestService', () => ({
+  getStoredPages: jest.fn(() => [{ pageNumber: 1, text: 'Expiry Date: 2027-03-14' }]),
+  ingestDocumentChunks: jest.fn(async () => ({ documentId: 'doc-1', chunksCreated: 1, pagesIndexed: 1 })),
+}));
+
+import prisma from '../config/prisma';
+import { ingestDocumentChunks } from '../services/ragIngestService';
+import { applyProcessingResult, INVALID_MODEL_OUTPUT } from '../services/compliance/applyProcessingResult';
+
+const mockedUpdate = (prisma.document.update as jest.Mock);
+const mockedIngest = ingestDocumentChunks as jest.MockedFunction<typeof ingestDocumentChunks>;
+
+const validPayload = {
+  type: 'White Card',
+  expiryDate: '2027-03-14',
+  issueDate: '2023-03-14',
+  licenseNumber: 'WC-4471-2290',
+  name: 'Jordan Mercer',
+  confidence: 0.95,
+  content: 'Construction induction',
+  pages: [{ page: 1, text: 'Expiry Date: 2027-03-14' }],
+  decision: 'clear',
+  risk: 'low',
+  issueType: null,
+  explanation: 'All fields present and unexpired.',
+  evidence: [{ quote: 'Expiry Date: 2027-03-14', page: 1 }],
+};
+
+describe('applyProcessingResult', () => {
+  beforeEach(() => {
+    mockedUpdate.mockReset();
+    mockedIngest.mockClear();
+  });
+
+  it('marks the document failed when the model JSON is invalid', async () => {
+    mockedUpdate.mockResolvedValue({
+      id: 'doc-1',
+      status: 'failed',
+      processingError: INVALID_MODEL_OUTPUT,
+    });
+
+    const result = await applyProcessingResult('doc-1', {
+      status: 'processed',
+      extractedData: { decision: 'not-a-real-value' },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.processingError).toBe(INVALID_MODEL_OUTPUT);
+    expect(result.invalidModelOutput).toBe(true);
+    expect(mockedIngest).not.toHaveBeenCalled();
+    expect(mockedUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'failed',
+          processingError: INVALID_MODEL_OUTPUT,
+        }),
+      }),
+    );
+  });
+
+  it('persists extraction, evaluation, and indexes chunks for valid output', async () => {
+    mockedUpdate.mockResolvedValue({
+      id: 'doc-1',
+      status: 'processed',
+      processingError: null,
+      extractedData: { pages: validPayload.pages },
+    });
+
+    const result = await applyProcessingResult('doc-1', {
+      status: 'processed',
+      modelId: 'gemini-2.5-flash',
+      extractedData: validPayload,
+    });
+
+    expect(result.status).toBe('processed');
+    expect(mockedUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'processed',
+          evaluations: expect.objectContaining({
+            create: expect.objectContaining({
+              modelId: 'gemini-2.5-flash',
+              promptVersion: 'compliance-eval-v1',
+              llmDecision: 'clear',
+              reviewStatus: 'not_required',
+              finalDecision: 'clear',
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(mockedIngest).toHaveBeenCalled();
+  });
+
+  it('stores processingError for worker-reported failures', async () => {
+    mockedUpdate.mockResolvedValue({
+      id: 'doc-1',
+      status: 'failed',
+      processingError: 'S3 timeout',
+    });
+
+    const result = await applyProcessingResult('doc-1', {
+      status: 'failed',
+      processingError: 'S3 timeout',
+    });
+
+    expect(result.processingError).toBe('S3 timeout');
+    expect(mockedIngest).not.toHaveBeenCalled();
+  });
+});
