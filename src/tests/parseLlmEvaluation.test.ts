@@ -56,10 +56,26 @@ describe('parseLlmEvaluation', () => {
     expect(() => parseLlmEvaluation('{ not json')).toThrow(InvalidLlmOutputError);
   });
 
-  it('rejects missing decision enums', () => {
-    expect(() => parseLlmEvaluation({ ...validPayload, decision: 'maybe' })).toThrow(
+  it('rejects unknown decision values', () => {
+    expect(() => parseLlmEvaluation({ ...validPayload, decision: 'nope' })).toThrow(
       /invalid decision/,
     );
+  });
+
+  it('normalizes Gemini enum aliases and casing', () => {
+    const parsed = parseLlmEvaluation({
+      ...validPayload,
+      decision: 'Compliant',
+      risk: 'Moderate',
+    });
+    expect(parsed.llmDecision).toBe('clear');
+    expect(parsed.risk).toBe('medium');
+  });
+
+  it('accepts confidence as a numeric string or 0-100 integer', () => {
+    expect(parseLlmEvaluation({ ...validPayload, confidence: '0.85' }).confidence).toBe(0.85);
+    expect(parseLlmEvaluation({ ...validPayload, confidence: 85 }).confidence).toBe(0.85);
+    expect(parseLlmEvaluation({ ...validPayload, confidence: '90%' }).confidence).toBe(0.9);
   });
 
   it('rejects confidence outside 0-1', () => {
@@ -67,6 +83,9 @@ describe('parseLlmEvaluation', () => {
       /invalid confidence/,
     );
     expect(() => parseLlmEvaluation({ ...validPayload, confidence: -0.1 })).toThrow(
+      /invalid confidence/,
+    );
+    expect(() => parseLlmEvaluation({ ...validPayload, confidence: 140 })).toThrow(
       /invalid confidence/,
     );
   });
@@ -77,13 +96,57 @@ describe('parseLlmEvaluation', () => {
     );
   });
 
-  it('rejects malformed evidence', () => {
-    expect(() => parseLlmEvaluation({ ...validPayload, evidence: 'a quote' })).toThrow(
+  it('accepts reason as an explanation alias', () => {
+    const { explanation: _ignored, ...withoutExplanation } = validPayload;
+    const parsed = parseLlmEvaluation({
+      ...withoutExplanation,
+      reason: 'SWMS covers the lift hazards and controls.',
+    });
+    expect(parsed.explanation).toContain('lift hazards');
+  });
+
+  it('rejects evidence that is not a string or array', () => {
+    expect(() => parseLlmEvaluation({ ...validPayload, evidence: { quote: 'x' } })).toThrow(
       /malformed evidence/,
     );
-    expect(() => parseLlmEvaluation({ ...validPayload, evidence: [{ page: 1 }] })).toThrow(
-      /missing a quote/,
-    );
+  });
+
+  it('coerces string evidence and skips items without a quote', () => {
+    const parsed = parseLlmEvaluation({
+      ...validPayload,
+      evidence: ['Crane radius 30m', { page: 1 }, { text: 'Dogman in radio contact', page: '2' }],
+    });
+    expect(parsed.evidence).toEqual([
+      { quote: 'Crane radius 30m' },
+      { quote: 'Dogman in radio contact', page: 2 },
+    ]);
+  });
+
+  it('accepts a typical Gemini SWMS payload', () => {
+    const parsed = parseLlmEvaluation({
+      type: 'SWMS',
+      expiryDate: null,
+      issueDate: '2026-03-01',
+      licenseNumber: null,
+      name: 'Northside Civil',
+      confidence: '0.78',
+      content: 'Tower crane lift operations method statement',
+      pages: [{ page: '1', text: 'SWMS: Tower Crane Lift Operations' }],
+      decision: 'Clear',
+      risk: 'medium',
+      issueType: null,
+      explanation: 'Document is a current SWMS for crane lift operations.',
+      evidence: [{ quote: 'Review date: 2027-03-01', page: 1 }],
+    });
+
+    expect(parsed.extraction.docType).toBe('SWMS');
+    expect(parsed.extraction.holderName).toBe('Northside Civil');
+    expect(parsed.extraction.pages[0]).toEqual({
+      page: 1,
+      text: 'SWMS: Tower Crane Lift Operations',
+    });
+    expect(parsed.llmDecision).toBe('clear');
+    expect(parsed.confidence).toBe(0.78);
   });
 
   it('defaults omitted evidence to an empty list', () => {

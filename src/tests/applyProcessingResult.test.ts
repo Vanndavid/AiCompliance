@@ -42,29 +42,40 @@ describe('applyProcessingResult', () => {
   });
 
   it('marks the document failed when the model JSON is invalid', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     mockedUpdate.mockResolvedValue({
       id: 'doc-1',
       status: 'failed',
-      processingError: INVALID_MODEL_OUTPUT,
+      processingError: `${INVALID_MODEL_OUTPUT}: Model output is missing an explanation`,
     });
 
-    const result = await applyProcessingResult('doc-1', {
-      status: 'processed',
-      extractedData: { decision: 'not-a-real-value' },
-    });
+    try {
+      const result = await applyProcessingResult('doc-1', {
+        status: 'processed',
+        extractedData: { decision: 'not-a-real-value' },
+      });
 
-    expect(result.status).toBe('failed');
-    expect(result.processingError).toBe(INVALID_MODEL_OUTPUT);
-    expect(result.invalidModelOutput).toBe(true);
-    expect(mockedIngest).not.toHaveBeenCalled();
-    expect(mockedUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: 'failed',
-          processingError: INVALID_MODEL_OUTPUT,
+      expect(result.status).toBe('failed');
+      expect(result.processingError).toBe(
+        `${INVALID_MODEL_OUTPUT}: Model output is missing an explanation`,
+      );
+      expect(result.invalidModelOutput).toBe(true);
+      expect(mockedIngest).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid model output for document doc-1'),
+        expect.objectContaining({ decision: 'not-a-real-value' }),
+      );
+      expect(mockedUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'failed',
+            processingError: `${INVALID_MODEL_OUTPUT}: Model output is missing an explanation`,
+          }),
         }),
-      }),
-    );
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('persists extraction, evaluation, and indexes chunks for valid output', async () => {

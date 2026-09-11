@@ -106,9 +106,9 @@ exports.handler = async (event) => {
            Number pages from 1. This transcription is what question answering reads,
            so do not summarise, reorder, or omit anything from it.
         8. Evaluate compliance (separate from the extracted fields):
-           - decision: "clear" if the document appears valid, "flagged" if there is a compliance issue, "uncertain" if you cannot tell
-           - risk: "low" | "medium" | "high" (expired high-risk work licences and expired insurance are high)
-           - confidence: a number from 0 to 1
+           - decision: exactly "clear", "flagged", or "uncertain" (not "compliant", "pass", or "approved")
+           - risk: exactly "low", "medium", or "high" (expired high-risk work licences and expired insurance are high)
+           - confidence: a JSON number from 0 to 1 (not a percentage and not a string)
            - issueType: "expired_certification", "expired_insurance", "missing_information", "contradictory_dates", "ambiguous", or null if clear
            - explanation: a short reason for the decision
            - evidence: array of { "quote": string, "page": number } quotes from the document that support the decision

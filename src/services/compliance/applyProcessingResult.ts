@@ -59,7 +59,23 @@ export const applyProcessingResult = async (
     parsed = parseLlmEvaluation(payload.extractedData);
   } catch (error) {
     if (error instanceof InvalidLlmOutputError) {
-      const failed = await markFailed(documentId, INVALID_MODEL_OUTPUT);
+      const extracted = payload.extractedData;
+      const preview =
+        typeof extracted === 'object' && extracted !== null && !Array.isArray(extracted)
+          ? {
+              decision: (extracted as Record<string, unknown>).decision,
+              risk: (extracted as Record<string, unknown>).risk,
+              confidence: (extracted as Record<string, unknown>).confidence,
+            }
+          : { kind: typeof extracted };
+      console.error(
+        `Invalid model output for document ${documentId}: ${error.message}`,
+        preview,
+      );
+      const failed = await markFailed(
+        documentId,
+        `${INVALID_MODEL_OUTPUT}: ${error.message}`,
+      );
       return { ...failed, invalidModelOutput: true };
     }
     throw error;
