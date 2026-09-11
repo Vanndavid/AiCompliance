@@ -90,31 +90,32 @@ exports.handler = async (event) => {
       // Uses your Env Var for model, defaults to 1.5-flash if missing
       const modelId = process.env.GEMINI_MODEL_ID || "gemini-2.5-flash";
       console.log(`Using Gemini Model: ${modelId}`);
-      // Keep in sync with src/services/compliance/extractionPrompt.ts (compliance-eval-v1).
+      // Keep in sync with src/services/compliance/extractionPrompt.ts (compliance-eval-v2).
 
       const prompt = `
         You are a strict Compliance Officer. Analyze this document.
         Task:
-        1. Identify the Document Type (e.g., White Card, Driver License, insurance certificate).
-        2. Extract the Expiry Date (YYYY-MM-DD), or null if not present.
-        3. Extract the Issue Date (YYYY-MM-DD), or null if not present.
-        4. Extract the License Number.
-        5. Extract the Name.
-        6. Extract a brief summary of content.
-        7. Transcribe the full text of every page, verbatim, in "pages".
-           Preserve each label and its value on the same line (e.g. "Expiry Date: 2027-03-14").
-           Number pages from 1. This transcription is what question answering reads,
-           so do not summarise, reorder, or omit anything from it.
-        8. Evaluate compliance (separate from the extracted fields):
+        1. Evaluate compliance first:
            - decision: exactly "clear", "flagged", or "uncertain" (not "compliant", "pass", or "approved")
            - risk: exactly "low", "medium", or "high" (expired high-risk work licences and expired insurance are high)
            - confidence: a JSON number from 0 to 1 (not a percentage and not a string)
            - issueType: "expired_certification", "expired_insurance", "missing_information", "contradictory_dates", "ambiguous", or null if clear
-           - explanation: a short reason for the decision
+           - explanation: a short non-empty reason for the decision. Always include this field.
            - evidence: array of { "quote": string, "page": number } quotes from the document that support the decision
+        2. Identify the Document Type (e.g., White Card, Driver License, insurance certificate, SWMS).
+        3. Extract the Expiry Date (YYYY-MM-DD), or null if not present.
+        4. Extract the Issue Date (YYYY-MM-DD), or null if not present.
+        5. Extract the License Number, or null if not present.
+        6. Extract the Name, or null if not present.
+        7. Extract a brief summary of content.
+        8. Transcribe the full text of every page, verbatim, in "pages".
+           Preserve each label and its value on the same line (e.g. "Expiry Date: 2027-03-14").
+           Number pages from 1. This transcription is what question answering reads,
+           so do not summarise, reorder, or omit anything from it.
 
         Output ONLY raw JSON. No markdown.
-        Structure: { "type": "string", "expiryDate": "string|null", "issueDate": "string|null", "licenseNumber": "string|null", "name": "string", "confidence": number, "content": "string", "pages": [{ "page": number, "text": "string" }], "decision": "clear"|"flagged"|"uncertain", "risk": "low"|"medium"|"high", "issueType": "string|null", "explanation": "string", "evidence": [{ "quote": "string", "page": number }] }
+        Write evaluation fields before pages.
+        Structure: { "decision": "clear"|"flagged"|"uncertain", "risk": "low"|"medium"|"high", "confidence": number, "issueType": "string|null", "explanation": "string", "evidence": [{ "quote": "string", "page": number }], "type": "string", "expiryDate": "string|null", "issueDate": "string|null", "licenseNumber": "string|null", "name": "string", "content": "string", "pages": [{ "page": number, "text": "string" }] }
       `;
 
       // 4. Call AI (Logic from geminiService)
@@ -127,12 +128,25 @@ exports.handler = async (event) => {
             { inlineData: { mimeType: mimeType || "application/pdf", data: base64Data } }
           ]
         }],
-        config: { responseMimeType: "application/json" }
+        config: {
+          responseMimeType: "application/json",
+          maxOutputTokens: 8192,
+          thinkingConfig: { thinkingBudget: 0 },
+        }
       });
 
       // 5. Parse Response (Logic from geminiService)
-      const text = aiResponse.text;
+      const parts = aiResponse.candidates && aiResponse.candidates[0] && aiResponse.candidates[0].content
+        ? aiResponse.candidates[0].content.parts
+        : [];
+      const partText = Array.isArray(parts)
+        ? parts.map((part) => part.text).filter(Boolean).join("")
+        : "";
+      const text = aiResponse.text || partText;
       const cleanJson = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      if (!cleanJson) {
+        throw new Error("Empty response from AI");
+      }
       const aiResult = JSON.parse(cleanJson);
 
       console.log(`AI analysis complete for ${docId}`);

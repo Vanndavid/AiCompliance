@@ -13,6 +13,7 @@ import {
   getDocumentStatusById,
   markDocumentPendingAndQueue,
   searchProcessedDocuments,
+  deleteDocumentForUser,
 } from '../services/documentService';
 import { getUnreadNotifications, markNotificationRead } from '../services/notificationService';
 import { applyProcessingResult } from '../services/compliance/applyProcessingResult';
@@ -374,5 +375,24 @@ export const downloadDocument = async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to generate download link' });
+  }
+};
+
+export const deleteDocument = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ error: 'Document id is required' });
+  }
+
+  try {
+    const userId = getRequestUserId(req);
+    await deleteDocumentForUser(id, userId);
+    res.json({ success: true });
+  } catch (error) {
+    if (isHttpError(error)) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    console.error('Failed to delete document:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
   }
 };

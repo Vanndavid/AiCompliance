@@ -46,36 +46,72 @@ describe('applyProcessingResult', () => {
     mockedUpdate.mockResolvedValue({
       id: 'doc-1',
       status: 'failed',
-      processingError: `${INVALID_MODEL_OUTPUT}: Model output is missing an explanation`,
+      processingError: `${INVALID_MODEL_OUTPUT}: Model output is not valid JSON`,
     });
 
     try {
       const result = await applyProcessingResult('doc-1', {
         status: 'processed',
-        extractedData: { decision: 'not-a-real-value' },
+        extractedData: '{ not json',
       });
 
       expect(result.status).toBe('failed');
       expect(result.processingError).toBe(
-        `${INVALID_MODEL_OUTPUT}: Model output is missing an explanation`,
+        `${INVALID_MODEL_OUTPUT}: Model output is not valid JSON`,
       );
       expect(result.invalidModelOutput).toBe(true);
       expect(mockedIngest).not.toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('Invalid model output for document doc-1'),
-        expect.objectContaining({ decision: 'not-a-real-value' }),
+        expect.objectContaining({ kind: 'string' }),
       );
       expect(mockedUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             status: 'failed',
-            processingError: `${INVALID_MODEL_OUTPUT}: Model output is missing an explanation`,
+            processingError: `${INVALID_MODEL_OUTPUT}: Model output is not valid JSON`,
           }),
         }),
       );
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it('processes sparse Gemini JSON by defaulting missing evaluation fields', async () => {
+    mockedUpdate.mockResolvedValue({
+      id: 'doc-1',
+      status: 'processed',
+      processingError: null,
+      extractedData: { pages: [], content: 'Tower crane lift SWMS' },
+    });
+
+    const result = await applyProcessingResult('doc-1', {
+      status: 'processed',
+      modelId: 'gemini-2.5-flash',
+      extractedData: {
+        type: 'SWMS',
+        content: 'Tower crane lift SWMS',
+      },
+    });
+
+    expect(result.status).toBe('processed');
+    expect(mockedUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'processed',
+          evaluations: expect.objectContaining({
+            create: expect.objectContaining({
+              llmDecision: 'uncertain',
+              risk: 'medium',
+              confidence: 0.5,
+              explanation: 'Tower crane lift SWMS',
+              needsReview: true,
+            }),
+          }),
+        }),
+      }),
+    );
   });
 
   it('persists extraction, evaluation, and indexes chunks for valid output', async () => {
@@ -100,7 +136,7 @@ describe('applyProcessingResult', () => {
           evaluations: expect.objectContaining({
             create: expect.objectContaining({
               modelId: 'gemini-2.5-flash',
-              promptVersion: 'compliance-eval-v1',
+              promptVersion: 'compliance-eval-v2',
               llmDecision: 'clear',
               reviewStatus: 'not_required',
               finalDecision: 'clear',

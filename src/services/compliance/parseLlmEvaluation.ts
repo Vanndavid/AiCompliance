@@ -7,8 +7,9 @@ import {
   type RiskLevel,
 } from './types';
 
-const LLM_DECISIONS: readonly LlmDecision[] = ['clear', 'flagged', 'uncertain'];
-const RISK_LEVELS: readonly RiskLevel[] = ['low', 'medium', 'high'];
+const DEFAULT_DECISION: LlmDecision = 'uncertain';
+const DEFAULT_RISK: RiskLevel = 'medium';
+const DEFAULT_CONFIDENCE = 0.5;
 
 const DECISION_ALIASES: Record<string, LlmDecision> = {
   clear: 'clear',
@@ -65,6 +66,24 @@ const asTrimmedString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const asText = (value: unknown): string | null => {
+  const fromString = asTrimmedString(value);
+  if (fromString) {
+    return fromString;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value.map(item => asText(item)).filter((item): item is string => Boolean(item));
+    return parts.length > 0 ? parts.join(' ') : null;
+  }
+  if (isRecord(value)) {
+    return asText(value.text) ?? asText(value.message) ?? asText(value.value);
+  }
+  return null;
+};
+
 const normalizeEnumKey = (value: string): string =>
   value.trim().toLowerCase().replace(/[\s\-/]+/g, '_');
 
@@ -107,25 +126,17 @@ const parseJsonPayload = (input: unknown): Record<string, unknown> => {
 };
 
 const parseDecision = (value: unknown): LlmDecision => {
-  if (typeof value !== 'string') {
-    throw new InvalidLlmOutputError('Model output has an invalid decision');
+  if (typeof value !== 'string' || !value.trim()) {
+    return DEFAULT_DECISION;
   }
-  const mapped = DECISION_ALIASES[normalizeEnumKey(value)];
-  if (!mapped || !LLM_DECISIONS.includes(mapped)) {
-    throw new InvalidLlmOutputError('Model output has an invalid decision');
-  }
-  return mapped;
+  return DECISION_ALIASES[normalizeEnumKey(value)] ?? DEFAULT_DECISION;
 };
 
 const parseRisk = (value: unknown): RiskLevel => {
-  if (typeof value !== 'string') {
-    throw new InvalidLlmOutputError('Model output has an invalid risk');
+  if (typeof value !== 'string' || !value.trim()) {
+    return DEFAULT_RISK;
   }
-  const mapped = RISK_ALIASES[normalizeEnumKey(value)];
-  if (!mapped || !RISK_LEVELS.includes(mapped)) {
-    throw new InvalidLlmOutputError('Model output has an invalid risk');
-  }
-  return mapped;
+  return RISK_ALIASES[normalizeEnumKey(value)] ?? DEFAULT_RISK;
 };
 
 const parseConfidence = (value: unknown): number => {
@@ -143,7 +154,7 @@ const parseConfidence = (value: unknown): number => {
   }
 
   if (numeric == null) {
-    throw new InvalidLlmOutputError('Model output has an invalid confidence');
+    return DEFAULT_CONFIDENCE;
   }
 
   // Gemini often emits 0–100 instead of 0–1.
@@ -152,7 +163,7 @@ const parseConfidence = (value: unknown): number => {
   }
 
   if (numeric < 0 || numeric > 1) {
-    throw new InvalidLlmOutputError('Model output has an invalid confidence');
+    return DEFAULT_CONFIDENCE;
   }
   return numeric;
 };
@@ -165,7 +176,7 @@ const parseEvidenceItem = (item: unknown): EvidenceItem | null => {
   if (!isRecord(item)) {
     return null;
   }
-  const quote = asTrimmedString(item.quote) ?? asTrimmedString(item.text);
+  const quote = asText(item.quote) ?? asText(item.text);
   if (!quote) {
     return null;
   }
@@ -185,8 +196,12 @@ const parseEvidence = (value: unknown): EvidenceItem[] => {
     const quote = asTrimmedString(value);
     return quote ? [{ quote }] : [];
   }
+  if (isRecord(value)) {
+    const parsed = parseEvidenceItem(value);
+    return parsed ? [parsed] : [];
+  }
   if (!Array.isArray(value)) {
-    throw new InvalidLlmOutputError('Model output has malformed evidence');
+    return [];
   }
 
   return value.flatMap((item) => {
@@ -212,7 +227,7 @@ const parsePages = (value: unknown): ExtractedDocumentPage[] => {
 
 const optionalMappedString = (...values: unknown[]): string | undefined => {
   for (const value of values) {
-    const parsed = asTrimmedString(value);
+    const parsed = asText(value);
     if (parsed) {
       return parsed;
     }
@@ -220,17 +235,29 @@ const optionalMappedString = (...values: unknown[]): string | undefined => {
   return undefined;
 };
 
+const fallbackExplanation = (
+  extraction: ExtractedDocumentData,
+  evidence: EvidenceItem[],
+): string => {
+  if (extraction.content) {
+    return extraction.content;
+  }
+  if (evidence[0]?.quote) {
+    return `Based on document evidence: ${evidence[0].quote}`;
+  }
+  if (extraction.docType) {
+    return `Evaluated a ${extraction.docType} document. The model did not provide an explanation.`;
+  }
+  return 'The model did not provide an explanation. Routed for human review.';
+};
+
 /**
- * Treat model JSON as untrusted input. Malformed payloads never become
- * extractedData or an evaluation row.
+ * Treat model JSON as untrusted input. Unparseable payloads never become
+ * extractedData. Missing advisory fields are defaulted conservatively so a
+ * long SWMS still reaches review instead of failing the job.
  */
 export const parseLlmEvaluation = (input: unknown): ParsedLlmEvaluation => {
   const record = parseJsonPayload(input);
-
-  const explanation = optionalMappedString(record.explanation, record.reason, record.rationale);
-  if (!explanation) {
-    throw new InvalidLlmOutputError('Model output is missing an explanation');
-  }
 
   const extraction: ExtractedDocumentData = {
     pages: parsePages(record.pages),
@@ -270,6 +297,17 @@ export const parseLlmEvaluation = (input: unknown): ParsedLlmEvaluation => {
   extraction.confidence = confidence;
 
   const issueType = asTrimmedString(record.issueType);
+  const evidence = parseEvidence(record.evidence);
+  const explanation =
+    optionalMappedString(
+      record.explanation,
+      record.reason,
+      record.rationale,
+      record.justification,
+      record.analysis,
+      record.comment,
+      record.notes,
+    ) ?? fallbackExplanation(extraction, evidence);
 
   return {
     extraction,
@@ -278,6 +316,6 @@ export const parseLlmEvaluation = (input: unknown): ParsedLlmEvaluation => {
     confidence,
     issueType,
     explanation,
-    evidence: parseEvidence(record.evidence),
+    evidence,
   };
 };

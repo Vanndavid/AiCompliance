@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 import dotenv from "dotenv";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { DOCUMENT_EVALUATION_PROMPT, getGeminiModelId } from "./compliance/extractionPrompt";
+import { DOCUMENT_EVALUATION_PROMPT, GEMINI_EVALUATION_CONFIG, getGeminiModelId } from "./compliance/extractionPrompt";
 
 dotenv.config();
 
@@ -81,15 +81,16 @@ export const analyzeDocument = async (filePathOrKey: string, mimeType: string) =
           ],
         },
       ],
-      config: {
-        responseMimeType: "application/json",
-      },
+      config: GEMINI_EVALUATION_CONFIG,
     });
 
     // 6. Parse Response
-    // The new SDK handles the text extraction cleaner
-    const text = response.text; 
-    const cleanJson = text?.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parts = response.candidates?.[0]?.content?.parts;
+    const partText = Array.isArray(parts)
+      ? parts.map((part) => part.text).filter(Boolean).join('')
+      : '';
+    const text = response.text || partText;
+    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
     if (!cleanJson) throw new Error("Empty response from AI");
 

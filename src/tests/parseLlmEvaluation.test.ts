@@ -56,10 +56,10 @@ describe('parseLlmEvaluation', () => {
     expect(() => parseLlmEvaluation('{ not json')).toThrow(InvalidLlmOutputError);
   });
 
-  it('rejects unknown decision values', () => {
-    expect(() => parseLlmEvaluation({ ...validPayload, decision: 'nope' })).toThrow(
-      /invalid decision/,
-    );
+  it('defaults unknown decision and risk values conservatively', () => {
+    const parsed = parseLlmEvaluation({ ...validPayload, decision: 'nope', risk: 'extreme' });
+    expect(parsed.llmDecision).toBe('uncertain');
+    expect(parsed.risk).toBe('medium');
   });
 
   it('normalizes Gemini enum aliases and casing', () => {
@@ -78,22 +78,28 @@ describe('parseLlmEvaluation', () => {
     expect(parseLlmEvaluation({ ...validPayload, confidence: '90%' }).confidence).toBe(0.9);
   });
 
-  it('rejects confidence outside 0-1', () => {
-    expect(() => parseLlmEvaluation({ ...validPayload, confidence: 1.4 })).toThrow(
-      /invalid confidence/,
-    );
-    expect(() => parseLlmEvaluation({ ...validPayload, confidence: -0.1 })).toThrow(
-      /invalid confidence/,
-    );
-    expect(() => parseLlmEvaluation({ ...validPayload, confidence: 140 })).toThrow(
-      /invalid confidence/,
-    );
+  it('defaults unusable confidence to 0.5', () => {
+    expect(parseLlmEvaluation({ ...validPayload, confidence: 1.4 }).confidence).toBe(0.5);
+    expect(parseLlmEvaluation({ ...validPayload, confidence: -0.1 }).confidence).toBe(0.5);
+    expect(parseLlmEvaluation({ ...validPayload, confidence: 140 }).confidence).toBe(0.5);
+    expect(parseLlmEvaluation({ ...validPayload, confidence: undefined }).confidence).toBe(0.5);
   });
 
-  it('rejects a missing explanation', () => {
-    expect(() => parseLlmEvaluation({ ...validPayload, explanation: '  ' })).toThrow(
-      /missing an explanation/,
-    );
+  it('synthesizes an explanation when Gemini omits it', () => {
+    const parsed = parseLlmEvaluation({
+      type: 'SWMS',
+      decision: 'clear',
+      risk: 'low',
+      confidence: 0.9,
+    });
+    expect(parsed.explanation).toContain('SWMS');
+    expect(parsed.llmDecision).toBe('clear');
+  });
+
+  it('uses document content when no explanation aliases exist', () => {
+    const { explanation: _ignored, ...withoutExplanation } = validPayload;
+    const parsed = parseLlmEvaluation(withoutExplanation);
+    expect(parsed.explanation).toBe('Construction induction card');
   });
 
   it('accepts reason as an explanation alias', () => {
@@ -105,10 +111,11 @@ describe('parseLlmEvaluation', () => {
     expect(parsed.explanation).toContain('lift hazards');
   });
 
-  it('rejects evidence that is not a string or array', () => {
-    expect(() => parseLlmEvaluation({ ...validPayload, evidence: { quote: 'x' } })).toThrow(
-      /malformed evidence/,
-    );
+  it('ignores malformed evidence instead of failing the document', () => {
+    expect(parseLlmEvaluation({ ...validPayload, evidence: 12 }).evidence).toEqual([]);
+    expect(
+      parseLlmEvaluation({ ...validPayload, evidence: { quote: 'Lift plan on page 3' } }).evidence,
+    ).toEqual([{ quote: 'Lift plan on page 3' }]);
   });
 
   it('coerces string evidence and skips items without a quote', () => {
@@ -141,7 +148,7 @@ describe('parseLlmEvaluation', () => {
 
     expect(parsed.extraction.docType).toBe('SWMS');
     expect(parsed.extraction.holderName).toBe('Northside Civil');
-    expect(parsed.extraction.pages[0]).toEqual({
+    expect(parsed.extraction.pages?.[0]).toEqual({
       page: 1,
       text: 'SWMS: Tower Crane Lift Operations',
     });
@@ -153,5 +160,13 @@ describe('parseLlmEvaluation', () => {
     const { evidence: _ignored, ...withoutEvidence } = validPayload;
     const parsed = parseLlmEvaluation(withoutEvidence);
     expect(parsed.evidence).toEqual([]);
+  });
+
+  it('accepts a sparse payload without failing the document', () => {
+    const parsed = parseLlmEvaluation({});
+    expect(parsed.llmDecision).toBe('uncertain');
+    expect(parsed.risk).toBe('medium');
+    expect(parsed.confidence).toBe(0.5);
+    expect(parsed.explanation).toContain('did not provide an explanation');
   });
 });

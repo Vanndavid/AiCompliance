@@ -178,6 +178,12 @@ export default function App() {
     setSelectedProjectId(project.id);
   };
 
+  const handleDeleteDocument = async (docId: string) => {
+    await api.delete(`/api/documents/${docId}`);
+    setDocuments((prev) => prev.filter((doc) => doc.id !== docId));
+    setReviews((prev) => prev.filter((doc) => doc.id !== docId));
+  };
+
   const uploadFile = async (file: File) => {
     if (selectedProjectId == null) {
       setError('Select or create a project first');
@@ -300,6 +306,7 @@ export default function App() {
             onProjectChange={setSelectedProjectId}
             onCreateProject={handleCreateProject}
             onUpload={uploadFile}
+            onDelete={handleDeleteDocument}
             uploading={uploading}
             uploadError={error}
           />

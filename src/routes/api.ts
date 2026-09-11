@@ -4,7 +4,7 @@ import { upload } from '../middleware/upload';
 import { login, logout, me, refresh, register } from '../controllers/authController';
 import { createCheckoutSession } from '../controllers/billingController';
 import { createProjectHandler, getProjects } from '../controllers/projectController';
-import { checkHealth, getDocumentStatus, getAllDocuments, getDocumentOverview, uploadDocument, getNotifications, markAsRead, downloadDocument, searchDocuments, updateDocumentProcessingResult, createDocumentUploadUrl, completeDocumentUpload } from '../controllers/documentController';
+import { checkHealth, getDocumentStatus, getAllDocuments, getDocumentOverview, uploadDocument, getNotifications, markAsRead, downloadDocument, searchDocuments, updateDocumentProcessingResult, createDocumentUploadUrl, completeDocumentUpload, deleteDocument } from '../controllers/documentController';
 import { askQuestion } from '../controllers/ragController';
 import { getPendingReviews, reviewDocument } from '../controllers/reviewController';
 import { requireCaptcha } from '../middleware/captcha';
@@ -36,6 +36,7 @@ router.post('/ask', requireAuth, askRateLimiter, askQuestion);
 router.get('/notifications', requireAuth, getNotifications);
 router.patch('/notifications/:id/read', requireAuth, markAsRead);
 router.get('/download/*key', requireAuth, downloadDocument);
+router.delete('/documents/:id', requireAuth, deleteDocument);
 router.post('/billing/checkout', requireAuth, createCheckoutSession);
 
 export default router;

@@ -8,10 +8,12 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  DialogContentText,
   DialogTitle,
   Divider,
   FormControl,
   Grid,
+  IconButton,
   InputLabel,
   Link,
   List,
@@ -25,6 +27,7 @@ import {
 } from '@mui/material';
 import ArticleIcon from '@mui/icons-material/Article';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ErrorIcon from '@mui/icons-material/Error';
 import CircularProgress from '@mui/material/CircularProgress';
 import type { AiExtraction, DocumentEvaluation, DocumentItem, ProjectItem } from '../types';
@@ -41,6 +44,7 @@ interface Props {
   onProjectChange: (projectId: number | null) => void;
   onCreateProject: (name: string) => Promise<void>;
   onUpload: (file: File) => void;
+  onDelete: (docId: string) => Promise<void>;
   uploading: boolean;
   uploadError: string | null;
 }
@@ -52,6 +56,7 @@ export const DocumentList = ({
   onProjectChange,
   onCreateProject,
   onUpload,
+  onDelete,
   uploading,
   uploadError,
 }: Props) => {
@@ -60,6 +65,9 @@ export const DocumentList = ({
   const [newProjectName, setNewProjectName] = useState('');
   const [creatingProject, setCreatingProject] = useState(false);
   const [createProjectError, setCreateProjectError] = useState<string | null>(null);
+  const [docToDelete, setDocToDelete] = useState<DocumentItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const getStatusChip = (status: string, evaluation?: DocumentEvaluation | null, extraction?: AiExtraction) => {
     if (status === 'pending' || status === 'uploading') {
@@ -148,6 +156,39 @@ export const DocumentList = ({
     }
   };
 
+  const openDeleteDialog = (doc: DocumentItem) => {
+    setDeleteError(null);
+    setDocToDelete(doc);
+  };
+
+  const closeDeleteDialog = () => {
+    if (deleting) {
+      return;
+    }
+    setDocToDelete(null);
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!docToDelete) {
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete(docToDelete.id);
+      if (selectedDoc?.id === docToDelete.id) {
+        setSelectedDoc(null);
+      }
+      setDocToDelete(null);
+    } catch {
+      setDeleteError('Failed to remove document.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Card sx={{ border: '1px solid #e0e0e0', animation: 'fadeIn 0.5s ease-in', mb: 4 }}>
       <CardContent>
@@ -224,13 +265,25 @@ export const DocumentList = ({
                   </Tooltip>
 
                   <Box width="100%">
-                    <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
                       <Typography fontWeight="bold">
                         <Link href="#" onClick={(e) => void handleDownload(e, doc)}>
                           {doc.name}
                         </Link>
                       </Typography>
-                      {getStatusChip(doc.status, doc.evaluation, doc.extraction)}
+                      <Box display="flex" alignItems="center" gap={0.5}>
+                        {getStatusChip(doc.status, doc.evaluation, doc.extraction)}
+                        <Tooltip title="Remove document">
+                          <IconButton
+                            aria-label={`Remove ${doc.name}`}
+                            size="small"
+                            onClick={() => openDeleteDialog(doc)}
+                            disabled={deleting && docToDelete?.id === doc.id}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </Box>
 
                     {doc.status === 'processed' && doc.extraction && (
@@ -330,6 +383,33 @@ export const DocumentList = ({
         <Dialog open={Boolean(selectedDoc)} onClose={handleClose}>
           <DialogTitle>{selectedDoc?.name}</DialogTitle>
           <DialogContent>{selectedDoc?.extraction?.content}</DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(docToDelete)} onClose={closeDeleteDialog}>
+          <DialogTitle>Remove document</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Remove {docToDelete?.name}? This deletes the file and its analysis.
+            </DialogContentText>
+            {deleteError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {deleteError}
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeDeleteDialog} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleConfirmDelete()}
+              color="error"
+              variant="contained"
+              disabled={deleting}
+            >
+              {deleting ? 'Removing…' : 'Remove'}
+            </Button>
+          </DialogActions>
         </Dialog>
       </CardContent>
     </Card>

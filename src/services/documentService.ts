@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { addDocumentJob } from '../queues/sqsProducer';
 import prisma from '../config/prisma';
-import { createSignedUploadUrl } from './storageService';
+import { createSignedUploadUrl, deleteObject } from './storageService';
 import { buildDocumentSearchSummary, extractExpiryWindowDays, tokenizeSearchTerms } from '../utils/searchUtils';
 import { daysUntilExpiry } from '../utils/dateUtils';
 import { sanitizeFileName } from '../utils/fileUtils';
@@ -10,6 +10,7 @@ import { computeDocumentOverview } from '../utils/overviewUtils';
 import { enforceGeminiQueuePolicy, enforceUploadIntentPolicy } from './usagePolicyService';
 import type { Document } from '@prisma/client';
 import type { ExtractedDocumentData } from '../models/Document';
+import { HttpError } from '../utils/httpError';
 import { getProjectForUser } from './projectService';
 
 const UPLOAD_URL_EXPIRY_SECONDS = 5 * 60;
@@ -143,6 +144,33 @@ export const getDocumentStatusById = async (id: string, userId: string) => {
       },
     },
   });
+};
+
+export const deleteDocumentForUser = async (documentId: string, userId: string) => {
+  const doc = await prisma.document.findFirst({
+    where: { id: documentId, userId },
+    select: { id: true, storagePath: true },
+  });
+
+  if (!doc) {
+    throw new HttpError(404, 'Document not found');
+  }
+
+  await prisma.$transaction([
+    prisma.notification.deleteMany({ where: { documentId: doc.id } }),
+    prisma.document.delete({ where: { id: doc.id } }),
+  ]);
+
+  try {
+    await deleteObject(doc.storagePath);
+  } catch (error) {
+    console.error(
+      `Deleted document ${doc.id} from the database but failed to remove S3 object ${doc.storagePath}:`,
+      error,
+    );
+  }
+
+  return { id: doc.id };
 };
 
 export const getDocumentOverview = async (expiringWithinDays: number, limit: number) => {
