@@ -10,17 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # 🚀 Add Services (Database & Queue for testing)
-    services:
-      mongo:
-        image: mongo:latest
-        ports:
-          - 27017:27017
-      redis:
-        image: redis:alpine
-        ports:
-          - 6379:6379
-
     strategy:
       matrix:
         node-version: [22.x] # Match your local version
@@ -40,14 +29,11 @@ jobs:
     - name: Build Backend
       run: npm run build
 
-    # Run tests with Environment Variables pointing to the service containers
+    # External services are mocked, so the tests need no database or queue
     - name: Run Integration Tests
       run: npm test
       env:
         PORT: 4000
-        MONGODB_URI: mongodb://localhost:27017/tradecomply_test
-        REDIS_HOST: localhost
-        REDIS_PORT: 6379
         JWT_SECRET: test_jwt_secret
         GEMINI_API_KEY: mock_key_for_ci
         AWS_BUCKET_NAME: dummy-bucket

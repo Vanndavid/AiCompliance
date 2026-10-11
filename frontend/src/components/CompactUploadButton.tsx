@@ -33,7 +33,7 @@ export const CompactUploadButton = ({ onUpload, uploading, disabled }: Props) =>
         onChange={handleFileChange}
         accept="image/*,application/pdf"
       />
-      <Tooltip title="Upload a pile of licences, tickets, or insurance PDFs">
+      <Tooltip title="Upload licences, certificates, or insurance PDFs. Several at once is fine.">
         <span>
           <Button
             variant="contained"
@@ -43,7 +43,7 @@ export const CompactUploadButton = ({ onUpload, uploading, disabled }: Props) =>
             startIcon={uploading ? <CircularProgress size={16} color="inherit" /> : <CloudUploadIcon />}
             sx={{ bgcolor: '#0F172A', whiteSpace: 'nowrap' }}
           >
-            {uploading ? 'Uploading…' : 'Upload tickets'}
+            {uploading ? 'Uploading…' : 'Upload documents'}
           </Button>
         </span>
       </Tooltip>

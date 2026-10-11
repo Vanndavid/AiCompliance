@@ -27,38 +27,6 @@ const assertProjectAccess = async (userId: string, projectId: number) => {
   return project;
 };
 
-export type UploadedFileData = {
-  originalname: string;
-  key: string;
-  mimetype: string;
-};
-
-export const createPendingDocumentRecord = async (
-  fileData: UploadedFileData,
-  userId: string,
-  projectId: number,
-) => {
-  await assertProjectAccess(userId, projectId);
-  await enforceGeminiQueuePolicy(userId);
-
-  const newDoc = await prisma.document.create({
-    data: {
-      originalName: fileData.originalname,
-      storagePath: fileData.key,
-      mimeType: fileData.mimetype,
-      status: 'pending',
-      userId,
-      projectId,
-    },
-  });
-
-  if (typeof addDocumentJob === 'function') {
-    await addDocumentJob(newDoc.id as unknown as string, newDoc.storagePath, newDoc.mimeType);
-  }
-
-  return newDoc;
-};
-
 export const createUploadIntent = async (
   userId: string,
   projectId: number,

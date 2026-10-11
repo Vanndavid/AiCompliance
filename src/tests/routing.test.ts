@@ -55,6 +55,14 @@ describe('routeEvaluation', () => {
     const result = routeEvaluation(clearParsed({ llmDecision: 'uncertain', confidence: 0.7 }), []);
     expect(result.finalDecision).toBe('flagged');
     expect(result.reviewStatus).toBe('pending');
+    expect(result.routingReason).toMatch(/70%/);
+  });
+
+  it('explains high extraction confidence when the decision is still uncertain', () => {
+    const result = routeEvaluation(clearParsed({ llmDecision: 'uncertain', confidence: 1 }), []);
+    expect(result.needsReview).toBe(true);
+    expect(result.routingReason).toMatch(/uncertain/i);
+    expect(result.routingReason).toMatch(/100%/);
   });
 
   it('does not auto-clear mid-confidence medium-risk results', () => {

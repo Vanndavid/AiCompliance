@@ -58,27 +58,43 @@ export interface DocumentItem {
   matchReasons?: string[];
   contentHash?: string | null;
   crewMemberId?: string | null;
+  holderKind?: HolderKind;
   opsStatus?: OpsStatus;
 }
 
-export type OpsStatus = 'processing' | 'failed' | 'needs_human' | 'expired' | 'expiring' | 'valid';
+export type OpsStatus =
+  | 'processing'
+  | 'failed'
+  | 'expired'
+  | 'not_compliant'
+  | 'needs_human'
+  | 'expiring'
+  | 'valid';
+
+/** A White Card belongs to a worker; a certificate of currency belongs to a business. */
+export type HolderKind = 'person' | 'organisation';
 
 export interface CrewMemberItem {
   id: string | null;
   name: string;
-  email: string | null;
+  kind: HolderKind;
   status: OpsStatus;
+  nextExpiryDate?: string | null;
+  daysUntilNextExpiry?: number | null;
   documents: DocumentItem[];
 }
 
 export interface CrewOverviewTotals {
+  blocked: number;
   expired: number;
+  notCompliant: number;
   expiringSoon: number;
-  siteReady: number;
+  allValid: number;
   needsHuman: number;
   processing: number;
   failed: number;
   people: number;
+  organisations: number;
   documents: number;
 }
 

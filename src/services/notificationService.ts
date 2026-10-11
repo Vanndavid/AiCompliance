@@ -106,7 +106,6 @@ type AlertCandidate = {
   daysUntilExpiry: number;
   userEmail: string;
   userName: string;
-  crewMemberEmail: string | null;
 };
 
 const buildAlertMessage = (candidate: AlertCandidate) => {
@@ -122,7 +121,7 @@ export const scanExpiringDocuments = async (alertWindowDays = ALERT_WINDOW_DAYS)
     where: { status: 'processed' },
     include: {
       user: { select: { email: true, name: true } },
-      crewMember: { select: { id: true, name: true, email: true } },
+      crewMember: { select: { id: true, name: true } },
     },
   });
 
@@ -175,7 +174,6 @@ export const scanExpiringDocuments = async (alertWindowDays = ALERT_WINDOW_DAYS)
       daysUntilExpiry: days,
       userEmail: doc.user.email,
       userName: doc.user.name,
-      crewMemberEmail: doc.crewMember?.email ?? null,
     };
 
     const existing = byPerson.get(personKey);
@@ -217,7 +215,6 @@ export const scanExpiringDocuments = async (alertWindowDays = ALERT_WINDOW_DAYS)
         userName: candidate.userName,
         crewMemberId: candidate.crewMemberId,
         crewMemberName: candidate.holderName,
-        crewMemberEmail: candidate.crewMemberEmail,
         documentId: candidate.documentId,
         docType: candidate.docType,
         expiryDate: candidate.expiryDate,

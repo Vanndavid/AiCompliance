@@ -3,27 +3,31 @@ import { buildMailtoUrl, sendEmail } from './emailService';
 import { HttpError } from '../utils/httpError';
 import type { ExtractedDocumentData } from '../models/Document';
 
+/**
+ * Reminders always go to the account owner. They are the person who chases the
+ * renewal, and asking them to keep a second address per worker up to date is
+ * more admin than the reminder saves.
+ */
 type ReminderTarget = {
   userId: string;
   userEmail: string;
   userName: string;
   crewMemberId?: string | null;
   crewMemberName: string;
-  crewMemberEmail?: string | null;
   documentId?: string | null;
   docType?: string | null;
   expiryDate?: string | null;
 };
 
 const reminderCopy = (target: ReminderTarget) => {
-  const ticket = target.docType || 'compliance document';
+  const document = target.docType || 'compliance document';
   const expiry = target.expiryDate ? ` on ${target.expiryDate}` : '';
-  const subject = `${target.crewMemberName}: ${ticket} expires${expiry || ' soon'}`;
+  const subject = `${target.crewMemberName}: ${document} expires${expiry || ' soon'}`;
   const text = [
     `Hi ${target.userName || 'there'},`,
     '',
-    `${target.crewMemberName} cannot stay site-ready unless this is renewed.`,
-    `Document: ${ticket}`,
+    `${target.crewMemberName} cannot go on site unless this is renewed.`,
+    `Document: ${document}`,
     target.expiryDate ? `Expiry: ${target.expiryDate}` : null,
     '',
     'Please remind them today.',
@@ -35,7 +39,7 @@ const reminderCopy = (target: ReminderTarget) => {
 };
 
 export const sendCrewReminder = async (target: ReminderTarget) => {
-  const to = (target.crewMemberEmail || target.userEmail || '').trim();
+  const to = (target.userEmail || '').trim();
   if (!to) {
     throw new HttpError(400, 'No email address is available to send a reminder');
   }
@@ -68,7 +72,7 @@ export const sendReminderForNotification = async (notificationId: number, userId
     include: {
       user: { select: { email: true, name: true } },
       document: { select: { id: true, extractedData: true, originalName: true } },
-      crewMember: { select: { id: true, name: true, email: true } },
+      crewMember: { select: { id: true, name: true } },
     },
   });
 
@@ -83,7 +87,6 @@ export const sendReminderForNotification = async (notificationId: number, userId
     userName: notification.user.name,
     crewMemberId: notification.crewMemberId,
     crewMemberName: notification.crewMember?.name || extracted?.holderName || 'Unassigned',
-    crewMemberEmail: notification.crewMember?.email ?? null,
     documentId: notification.documentId,
     docType: extracted?.docType || notification.document.originalName,
     expiryDate: extracted?.expiryDate ?? null,
@@ -125,7 +128,6 @@ export const sendReminderForCrewMember = async (
     userName: member.user.name,
     crewMemberId: member.id,
     crewMemberName: member.name,
-    crewMemberEmail: member.email,
     documentId: document?.id ?? null,
     docType: extracted?.docType || document?.originalName || null,
     expiryDate: extracted?.expiryDate ?? null,

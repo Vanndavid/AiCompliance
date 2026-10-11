@@ -40,6 +40,6 @@ describe('computeCrewOverview', () => {
 
     expect(overview.totals.people).toBe(3);
     expect(overview.totals.expired).toBe(1);
-    expect(overview.totals.siteReady).toBe(2);
+    expect(overview.totals.allValid).toBe(2);
   });
 });

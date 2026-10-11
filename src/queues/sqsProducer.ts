@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // 1. Initialize AWS SQS Client
-// (Notice we don't need a 'connection' file anymore, AWS SDK handles it)
 const sqsClient = new SQSClient({
   region: process.env.AWS_REGION || "ap-southeast-2", // e.g., ap-southeast-2
   credentials: {
@@ -13,15 +12,14 @@ const sqsClient = new SQSClient({
   },
 });
 
-// 2. The New "Add Job" Function
-// It takes the same arguments so it's easy to swap in your Controller
+// 2. Send one job per document; lambdaWorker/ consumes it
 export const addDocumentJob = async (docId: string, fileKey: string, mimeType: string) => {
   try {
     const command = new SendMessageCommand({
       QueueUrl: process.env.SQS_QUEUE_URL,
       MessageBody: JSON.stringify({
-        docId: docId,      // The ID of the document in MongoDB
-        key: fileKey,      // The S3 Key (was 'filePath' in local version)
+        docId: docId,      // Document row id
+        key: fileKey,      // S3 object key
         mimeType: mimeType // Needed for Gemini later
       }),
     });

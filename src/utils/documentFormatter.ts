@@ -1,5 +1,6 @@
 import type { Document, DocumentEvaluation, Prisma } from '@prisma/client';
 import type { EvidenceItem, RuleHit } from '../services/compliance/types';
+import { classifyHolder } from './holderKind';
 import { documentOpsStatus } from './opsStatus';
 
 export type DocumentWithLatestEvaluation = Document & {
@@ -96,7 +97,9 @@ export const latestEvaluation = (doc: DocumentWithLatestEvaluation) =>
 export const formatDocumentListItem = (doc: DocumentWithLatestEvaluation) => {
   const evaluation = latestEvaluation(doc);
   const formattedEvaluation = evaluation ? formatEvaluation(evaluation) : null;
-  const extraction = doc.extractedData as { expiryDate?: string } | null;
+  const extraction = doc.extractedData as
+    | { expiryDate?: string; docType?: string; holderName?: string }
+    | null;
   return {
     id: doc.id,
     name: doc.originalName,
@@ -107,6 +110,10 @@ export const formatDocumentListItem = (doc: DocumentWithLatestEvaluation) => {
     evaluation: formattedEvaluation,
     contentHash: doc.contentHash ?? null,
     crewMemberId: doc.crewMemberId ?? null,
+    holderKind: classifyHolder({
+      docType: extraction?.docType,
+      holderName: extraction?.holderName,
+    }),
     opsStatus: documentOpsStatus({
       status: doc.status,
       extraction,

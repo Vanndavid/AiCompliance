@@ -73,7 +73,7 @@ The system is designed as an **internal operations tool**, not a public marketpl
   - Valid
 
 ### 4. Asynchronous Processing
-- Document analysis runs in background workers (SQS + Lambda, or local BullMQ)
+- Document analysis runs in a background worker (SQS + Lambda)
 - Uploads return immediately
 - Prevents UI blocking and API timeouts
 - Scales independently of user traffic
@@ -103,7 +103,7 @@ The system is designed as an **internal operations tool**, not a public marketpl
 ```mermaid
 flowchart TD
   upload[User uploads document] --> s3[Presigned S3 PUT]
-  s3 --> queue[SQS or BullMQ]
+  s3 --> queue[SQS]
   queue --> llm[Gemini extraction plus evaluation]
   llm --> validate[Validate model JSON]
   validate -->|invalid| failed[status failed plus processingError]
@@ -145,8 +145,7 @@ The LLM proposes; rules can escalate; humans can override.
 - Node.js + TypeScript
 - Express
 - PostgreSQL + Prisma + pgvector
-- AWS SQS + Lambda (production path)
-- BullMQ + Redis (optional local path)
+- AWS SQS + Lambda (document processing)
 
 ### AI
 - Google Gemini (multimodal extraction, evaluation, RAG answers, embeddings)
@@ -455,16 +454,8 @@ git clone https://github.com/Vanndavid/AiCompliance.git
 cd AiCompliance
 docker-compose up -d --build
 
-# At this point, the application has evolved to using AWS services, so to setup local development
-# 1. Uncomment redis, mongodb, worker, in docker-compose.yml to use them
-# 2. You need to point the API to use local drivers instead of AWS SDKs in api.ts
-#    // src/routes/api.ts
-#    // import { upload } from "../middleware/uploadMiddleware"; // AWS S3 ☁️
-#    import { upload } from "../middleware/uploadLocal";         // Local Disk 💻
-# 3. Queue Driver (src/controllers/documentController.ts) Switch the job producer from SQS to BullMQ:
-#    // src/controllers/documentController.ts
-#    // import { addDocumentJob } from "../queues/sqsProducer";   // AWS SQS ☁️
-#    import { addDocumentJob } from "../queues/documentQueue";  // Redis BullMQ 💻
+# Documents are processed by the Lambda in lambdaWorker/. Until SQS_QUEUE_URL and
+# the Lambda are configured, uploads stay in "pending".
 
 # go to http://localhost:5173/
 
