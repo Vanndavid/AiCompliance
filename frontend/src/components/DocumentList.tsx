@@ -33,12 +33,21 @@ import ErrorIcon from '@mui/icons-material/Error';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CircularProgress from '@mui/material/CircularProgress';
 import type { CrewMemberItem, DocumentItem, OpsStatus, ProjectItem } from '../types';
-import { PERSON_STATUS_LABEL, OPS_STATUS_LABEL } from '../utils/crew';
+import { expiryLine, PERSON_STATUS_LABEL, OPS_STATUS_LABEL } from '../utils/crew';
 import { useState } from 'react';
 import { api } from '../api/client';
 import { CompactUploadButton } from './CompactUploadButton';
+import { ReviewDialog } from './ReviewDialog';
 
 const CREATE_PROJECT_VALUE = '__create__';
+
+/** "Document" tells you nothing, so fall back to the file name. */
+const GENERIC_DOC_TYPE = /^(document|documents|unknown|other|n\/?a)$/i;
+
+const documentTitle = (doc: DocumentItem) => {
+  const docType = doc.extraction?.docType?.trim();
+  return docType && !GENERIC_DOC_TYPE.test(docType) ? docType : doc.name;
+};
 
 const statusChip = (status: OpsStatus) => {
   if (status === 'processing') {
@@ -50,7 +59,7 @@ const statusChip = (status: OpsStatus) => {
   if (status === 'needs_human') {
     return <Chip icon={<WarningAmberIcon />} label={OPS_STATUS_LABEL[status]} color="warning" variant="outlined" />;
   }
-  if (status === 'expired') {
+  if (status === 'expired' || status === 'not_compliant') {
     return <Chip icon={<ErrorIcon />} label={OPS_STATUS_LABEL[status]} color="error" variant="outlined" />;
   }
   if (status === 'expiring') {
@@ -61,7 +70,7 @@ const statusChip = (status: OpsStatus) => {
 
 const personChip = (status: OpsStatus) => {
   const color =
-    status === 'expired' || status === 'failed'
+    status === 'expired' || status === 'not_compliant' || status === 'failed'
       ? 'error'
       : status === 'valid'
         ? 'success'
@@ -103,8 +112,8 @@ export const DocumentList = ({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({});
   const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [docToReview, setDocToReview] = useState<DocumentItem | null>(null);
 
   const handleOpen = (doc: DocumentItem) => setSelectedDoc(doc);
   const handleClose = () => setSelectedDoc(null);
@@ -195,15 +204,6 @@ export const DocumentList = ({
     setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const saveEmail = async (member: CrewMemberItem) => {
-    if (!member.id) {
-      return;
-    }
-    const email = (emailDrafts[member.id] ?? member.email ?? '').trim();
-    await api.patch(`/api/crew/${member.id}`, { email: email || null });
-    await onCrewChanged();
-  };
-
   const remindPerson = async (member: CrewMemberItem) => {
     if (!member.id) {
       return;
@@ -218,6 +218,107 @@ export const DocumentList = ({
     } finally {
       setRemindingId(null);
     }
+  };
+
+  const people = crew.filter(holder => holder.kind !== 'organisation');
+  const organisations = crew.filter(holder => holder.kind === 'organisation');
+  const sections = [
+    { title: 'Crew', holders: people },
+    { title: 'Companies and site documents', holders: organisations },
+  ].filter(section => section.holders.length > 0);
+
+  const renderHolder = (holder: CrewMemberItem) => {
+    const key = `${holder.kind}:${holder.id || holder.name}`;
+    const isOpen = expanded[key] ?? holder.status !== 'valid';
+
+    return (
+      <Box key={key} py={1.5}>
+        <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={1}>
+          <Box minWidth={0}>
+            <Typography fontWeight={700}>{holder.name}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {expiryLine(holder)}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            {personChip(holder.status)}
+            {(holder.status === 'expired' || holder.status === 'expiring') && holder.id && (
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={remindingId === holder.id}
+                onClick={() => void remindPerson(holder)}
+              >
+                {remindingId === holder.id ? 'Sending…' : 'Remind me'}
+              </Button>
+            )}
+            <IconButton
+              aria-label={isOpen ? 'Hide documents' : 'Show documents'}
+              size="small"
+              onClick={() => togglePerson(key)}
+            >
+              {isOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            </IconButton>
+          </Stack>
+        </Box>
+
+        <Collapse in={isOpen}>
+          <Stack spacing={1.5} mt={1.5}>
+            {holder.documents.map(doc => (
+              <Box key={doc.id} sx={{ pl: 1, borderLeft: '3px solid #e0e0e0' }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
+                  <Typography fontWeight={600}>
+                    <Link href="#" onClick={e => void handleDownload(e, doc)}>
+                      {documentTitle(doc)}
+                    </Link>
+                  </Typography>
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    {doc.evaluation?.reviewStatus === 'pending' && (
+                      <Button size="small" variant="outlined" onClick={() => setDocToReview(doc)}>
+                        Check
+                      </Button>
+                    )}
+                    {statusChip(doc.opsStatus ?? 'valid')}
+                    <Tooltip title="Remove document">
+                      <IconButton
+                        aria-label={`Remove ${doc.name}`}
+                        size="small"
+                        onClick={() => openDeleteDialog(doc)}
+                        disabled={deleting && docToDelete?.id === doc.id}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  {doc.extraction?.expiryDate
+                    ? `Expiry ${doc.extraction.expiryDate}`
+                    : 'No expiry extracted'}
+                  {doc.extraction?.licenseNumber ? ` · ${doc.extraction.licenseNumber}` : ''}
+                </Typography>
+                {doc.opsStatus === 'not_compliant' && doc.evaluation && (
+                  <Typography variant="body2" color="error" mt={0.5}>
+                    You marked this a problem
+                    {doc.evaluation.issueType ? `: ${doc.evaluation.issueType}` : '.'}
+                  </Typography>
+                )}
+                {doc.status === 'processed' && doc.extraction?.content && (
+                  <Button size="small" onClick={() => handleOpen(doc)} sx={{ mt: 0.5, px: 0 }}>
+                    View text
+                  </Button>
+                )}
+                {doc.status === 'failed' && (
+                  <Typography variant="body2" color="error" mt={0.5}>
+                    Analysis failed{doc.processingError ? `: ${doc.processingError}` : '.'}
+                  </Typography>
+                )}
+              </Box>
+            ))}
+          </Stack>
+        </Collapse>
+      </Box>
+    );
   };
 
   return (
@@ -276,105 +377,21 @@ export const DocumentList = ({
         {crew.length === 0 ? (
           <Typography color="text.secondary" textAlign="center" py={4}>
             {selectedProjectId
-              ? 'Upload the pile of tickets. We will group them by person.'
+              ? 'Upload your licences, certificates and insurance. We group them by whoever they belong to.'
               : 'Select or create a project to upload documents.'}
           </Typography>
         ) : (
-          <Stack divider={<Divider />}>
-            {crew.map(person => {
-              const key = person.id || person.name;
-              const isOpen = expanded[key] ?? (person.status !== 'valid');
-              return (
-                <Box key={key} py={1.5}>
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={1}>
-                    <Box>
-                      <Typography fontWeight={700}>{person.name}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {person.documents.length} document{person.documents.length === 1 ? '' : 's'}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                      {personChip(person.status)}
-                      {(person.status === 'expired' || person.status === 'expiring') && person.id && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={remindingId === person.id}
-                          onClick={() => void remindPerson(person)}
-                        >
-                          {remindingId === person.id ? 'Sending…' : 'Remind'}
-                        </Button>
-                      )}
-                      <IconButton
-                        aria-label={isOpen ? 'Hide documents' : 'Show documents'}
-                        size="small"
-                        onClick={() => togglePerson(key)}
-                      >
-                        {isOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                      </IconButton>
-                    </Stack>
-                  </Box>
-
-                  <Collapse in={isOpen}>
-                    {person.id && (
-                      <TextField
-                        size="small"
-                        label="Reminder email"
-                        placeholder="worker@example.com"
-                        value={emailDrafts[person.id] ?? person.email ?? ''}
-                        onChange={event =>
-                          setEmailDrafts(prev => ({ ...prev, [person.id as string]: event.target.value }))
-                        }
-                        onBlur={() => void saveEmail(person)}
-                        sx={{ mt: 1.5, maxWidth: 360 }}
-                      />
-                    )}
-                    <Stack spacing={1.5} mt={1.5}>
-                      {person.documents.map(doc => (
-                        <Box key={doc.id} sx={{ pl: 1, borderLeft: '3px solid #e0e0e0' }}>
-                          <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
-                            <Typography fontWeight={600}>
-                              <Link href="#" onClick={e => void handleDownload(e, doc)}>
-                                {doc.extraction?.docType || doc.name}
-                              </Link>
-                            </Typography>
-                            <Box display="flex" alignItems="center" gap={0.5}>
-                              {statusChip(doc.opsStatus ?? 'valid')}
-                              <Tooltip title="Remove document">
-                                <IconButton
-                                  aria-label={`Remove ${doc.name}`}
-                                  size="small"
-                                  onClick={() => openDeleteDialog(doc)}
-                                  disabled={deleting && docToDelete?.id === doc.id}
-                                >
-                                  <DeleteOutlineIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </Box>
-                          <Typography variant="body2" color="text.secondary">
-                            {doc.extraction?.expiryDate
-                              ? `Expiry ${doc.extraction.expiryDate}`
-                              : 'No expiry extracted'}
-                            {doc.extraction?.licenseNumber ? ` · ${doc.extraction.licenseNumber}` : ''}
-                          </Typography>
-                          {doc.status === 'processed' && doc.extraction?.content && (
-                            <Button size="small" onClick={() => handleOpen(doc)} sx={{ mt: 0.5, px: 0 }}>
-                              View text
-                            </Button>
-                          )}
-                          {doc.status === 'failed' && (
-                            <Typography variant="body2" color="error" mt={0.5}>
-                              Analysis failed{doc.processingError ? `: ${doc.processingError}` : '.'}
-                            </Typography>
-                          )}
-                        </Box>
-                      ))}
-                    </Stack>
-                  </Collapse>
-                </Box>
-              );
-            })}
+          <Stack spacing={3}>
+            {sections.map(section => (
+              <Box key={section.title}>
+                <Typography variant="overline" color="text.secondary">
+                  {section.title}
+                </Typography>
+                <Stack divider={<Divider />}>
+                  {section.holders.map(holder => renderHolder(holder))}
+                </Stack>
+              </Box>
+            ))}
           </Stack>
         )}
 
@@ -411,6 +428,12 @@ export const DocumentList = ({
           <DialogTitle>{selectedDoc?.name}</DialogTitle>
           <DialogContent>{selectedDoc?.extraction?.content}</DialogContent>
         </Dialog>
+
+        <ReviewDialog
+          doc={docToReview}
+          onClose={() => setDocToReview(null)}
+          onReviewed={onCrewChanged}
+        />
 
         <Dialog open={Boolean(docToDelete)} onClose={closeDeleteDialog}>
           <DialogTitle>Remove document</DialogTitle>

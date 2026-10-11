@@ -33,7 +33,13 @@ export const routeEvaluation = (
   }
 
   if (parsed.llmDecision === 'uncertain') {
-    return flaggedForReview('Model was uncertain');
+    const percent = Math.round(parsed.confidence * 100);
+    if (parsed.confidence >= HIGH_CONFIDENCE) {
+      return flaggedForReview(
+        `AI compliance decision is uncertain, even though extraction confidence is ${percent}%. Human review required.`,
+      );
+    }
+    return flaggedForReview(`Model was uncertain (${percent}% extraction confidence)`);
   }
 
   if (parsed.confidence < UNCERTAIN_CONFIDENCE) {

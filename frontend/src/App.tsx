@@ -4,7 +4,7 @@ import { Header } from './components/Header';
 import { DocumentList } from './components/DocumentList';
 import { NotificationPanel } from './components/NotificationPanel';
 import { ReviewQueue } from './components/ReviewQueue';
-import { SiteReadyOverview } from './components/SiteReadyOverview';
+import { StatusOverview } from './components/StatusOverview';
 import { DocumentTools } from './components/DocumentTools';
 import { useAuth, api } from './auth/AuthContext';
 import type { CrewMemberItem, CrewOverviewTotals, CrewResponse, DocumentItem, NotificationItem, ProjectItem } from './types';
@@ -254,13 +254,14 @@ export default function App() {
       {isAuthenticated ? (
         <Container maxWidth="md" sx={{ mt: 6 }}>
           <Typography variant="h3" textAlign="center" fontWeight="bold" mb={1}>
-            Who's site-ready
+            Who can work today
           </Typography>
           <Typography color="text.secondary" textAlign="center" sx={{ mb: 4 }}>
-            Upload the pile of tickets. Tomorrow morning you know who cannot go on site, and they already got a reminder.
+            Upload your licences, certificates and insurance. You will see whose documents have
+            expired, and a reminder reaches you before the rest run out.
           </Typography>
 
-          <SiteReadyOverview totals={overview} />
+          <StatusOverview totals={overview} />
           <NotificationPanel
             notifications={notifications}
             onRead={handleNotificationRead}

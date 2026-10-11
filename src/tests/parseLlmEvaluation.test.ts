@@ -167,6 +167,19 @@ describe('parseLlmEvaluation', () => {
     expect(parsed.llmDecision).toBe('uncertain');
     expect(parsed.risk).toBe('medium');
     expect(parsed.confidence).toBe(0.5);
+    expect(parsed.explanation).toContain('omitted a compliance decision');
     expect(parsed.explanation).toContain('did not provide an explanation');
+  });
+
+  it('notes when Gemini used a document title as the decision', () => {
+    const parsed = parseLlmEvaluation({
+      ...validPayload,
+      decision: 'High Risk Work Licence',
+      confidence: 1,
+    });
+    expect(parsed.llmDecision).toBe('uncertain');
+    expect(parsed.confidence).toBe(1);
+    expect(parsed.explanation).toContain('High Risk Work Licence');
+    expect(parsed.explanation).toContain('unrecognised compliance decision');
   });
 });

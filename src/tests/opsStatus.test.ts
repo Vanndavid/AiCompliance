@@ -19,7 +19,7 @@ describe('opsStatus', () => {
     ).toBe('needs_human');
   });
 
-  it('treats expired tickets as expired even if the model said clear', () => {
+  it('treats expired documents as expired even if the model said clear', () => {
     expect(
       documentOpsStatus({
         status: 'processed',
@@ -29,7 +29,7 @@ describe('opsStatus', () => {
     ).toBe('expired');
   });
 
-  it('treats tickets in the next 7 days as expiring', () => {
+  it('treats documents expiring in the next 7 days as expiring', () => {
     expect(
       documentOpsStatus({
         status: 'processed',
@@ -37,6 +37,34 @@ describe('opsStatus', () => {
         evaluation: { reviewStatus: 'not_required', finalDecision: 'clear' },
       }),
     ).toBe('expiring');
+  });
+
+  it('stops asking for a human once a reviewer has decided', () => {
+    expect(
+      documentOpsStatus({
+        status: 'processed',
+        extraction: { expiryDate: '2027-01-01' },
+        evaluation: { reviewStatus: 'approved', finalDecision: 'flagged' },
+      }),
+    ).toBe('not_compliant');
+
+    expect(
+      documentOpsStatus({
+        status: 'processed',
+        extraction: { expiryDate: '2027-01-01' },
+        evaluation: { reviewStatus: 'rejected', finalDecision: 'flagged', overrideDecision: 'clear' },
+      }),
+    ).toBe('valid');
+  });
+
+  it('reports an expired document as expired while it still waits for review', () => {
+    expect(
+      documentOpsStatus({
+        status: 'processed',
+        extraction: { expiryDate: '2026-01-01' },
+        evaluation: { reviewStatus: 'pending', finalDecision: 'flagged' },
+      }),
+    ).toBe('expired');
   });
 
   it('uses the worst document for a person', () => {

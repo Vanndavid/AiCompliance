@@ -58,6 +58,7 @@ describe('Review API', () => {
         processingError: null,
         contentHash: null,
         crewMemberId: null,
+        holderKind: 'person' as const,
         opsStatus: 'needs_human' as const,
         evaluation: evaluationFixture,
       },

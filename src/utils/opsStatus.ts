@@ -3,25 +3,38 @@ import { daysUntilExpiry } from './dateUtils';
 export const EXPIRING_THIS_WEEK_DAYS = 7;
 export const ALERT_WINDOW_DAYS = 30;
 
-export type OpsStatus = 'processing' | 'failed' | 'needs_human' | 'expired' | 'expiring' | 'valid';
+export type OpsStatus =
+  | 'processing'
+  | 'failed'
+  | 'expired'
+  | 'not_compliant'
+  | 'needs_human'
+  | 'expiring'
+  | 'valid';
 
 export const OPS_STATUS_LABEL: Record<OpsStatus, string> = {
   processing: 'Processing',
   failed: 'Failed',
-  needs_human: 'Needs a human',
   expired: 'Expired',
+  not_compliant: 'Not compliant',
+  needs_human: 'Needs your check',
   expiring: 'Expiring',
   valid: 'Valid',
 };
 
+/** Worst-first. A person inherits the worst status across their documents. */
 const PERSON_STATUS_PRIORITY: OpsStatus[] = [
   'expired',
+  'not_compliant',
   'needs_human',
   'expiring',
   'processing',
   'failed',
   'valid',
 ];
+
+/** Statuses that stop someone walking through the gate. */
+export const BLOCKING_STATUSES: OpsStatus[] = ['expired', 'not_compliant'];
 
 export type OpsStatusInput = {
   status: string;
@@ -48,6 +61,12 @@ const effectiveDecision = (evaluation: OpsStatusInput['evaluation']) => {
   return evaluation?.finalDecision ?? null;
 };
 
+/**
+ * The expiry date is checked before the review state on purpose. An expired
+ * document is a fact the reviewer cannot change, and reading "Needs a human" on
+ * one expired licence and "Expired" on another made the list untrustworthy.
+ * Once a reviewer has acted, the document never reports "Needs a human" again.
+ */
 export const documentOpsStatus = (
   doc: OpsStatusInput,
   expiringWithinDays = EXPIRING_THIS_WEEK_DAYS,
@@ -59,18 +78,19 @@ export const documentOpsStatus = (
     return 'failed';
   }
 
+  const days = daysUntilExpiry(expiryDateOf(doc.extraction));
+  if (days != null && days < 0) {
+    return 'expired';
+  }
+
   if (doc.evaluation?.reviewStatus === 'pending') {
     return 'needs_human';
   }
 
   if (effectiveDecision(doc.evaluation) === 'flagged') {
-    return 'needs_human';
+    return 'not_compliant';
   }
 
-  const days = daysUntilExpiry(expiryDateOf(doc.extraction));
-  if (days != null && days < 0) {
-    return 'expired';
-  }
   if (days != null && days <= expiringWithinDays) {
     return 'expiring';
   }
@@ -89,5 +109,8 @@ export const personOpsStatus = (
   const statuses = documents.map(doc => documentOpsStatus(doc, expiringWithinDays));
   return PERSON_STATUS_PRIORITY.find(status => statuses.includes(status)) ?? 'valid';
 };
+
+export const comparePersonStatus = (a: OpsStatus, b: OpsStatus) =>
+  PERSON_STATUS_PRIORITY.indexOf(a) - PERSON_STATUS_PRIORITY.indexOf(b);
 
 export const opsStatusLabel = (status: OpsStatus) => OPS_STATUS_LABEL[status];

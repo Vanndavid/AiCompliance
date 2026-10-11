@@ -5,7 +5,7 @@ import { login, logout, me, refresh, register } from '../controllers/authControl
 import { createCheckoutSession } from '../controllers/billingController';
 import { createProjectHandler, getProjects } from '../controllers/projectController';
 import { checkHealth, getDocumentStatus, getAllDocuments, getDocumentOverview, uploadDocument, getNotifications, markAsRead, remindFromNotification, downloadDocument, searchDocuments, updateDocumentProcessingResult, createDocumentUploadUrl, completeDocumentUpload, deleteDocument } from '../controllers/documentController';
-import { getCrew, patchCrewMember, remindCrewMember } from '../controllers/crewController';
+import { getCrew, remindCrewMember } from '../controllers/crewController';
 import { askQuestion } from '../controllers/ragController';
 import { getPendingReviews, reviewDocument } from '../controllers/reviewController';
 import { requireCaptcha } from '../middleware/captcha';
@@ -34,7 +34,6 @@ router.get('/documents/search', requireAuth, searchDocuments);
 router.get('/reviews', requireAuth, getPendingReviews);
 router.post('/documents/:id/review', requireAuth, reviewDocument);
 router.get('/crew', requireAuth, getCrew);
-router.patch('/crew/:id', requireAuth, patchCrewMember);
 router.post('/crew/:id/remind', requireAuth, remindCrewMember);
 router.post('/ask', requireAuth, askRateLimiter, askQuestion);
 router.get('/notifications', requireAuth, getNotifications);

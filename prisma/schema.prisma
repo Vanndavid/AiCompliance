@@ -142,7 +142,6 @@ model CrewMember {
   projectId      Int
   name           String
   nameNormalized String
-  email          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

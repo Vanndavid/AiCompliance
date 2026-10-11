@@ -1,10 +1,12 @@
 import prisma from '../config/prisma';
+import { daysUntilExpiry } from '../utils/dateUtils';
 import { collapseDuplicateDocuments } from '../utils/documentDedupe';
 import { formatDocumentListItem } from '../utils/documentFormatter';
+import { classifyHolder, type HolderKind } from '../utils/holderKind';
 import { HttpError } from '../utils/httpError';
 import { displayPersonName, normalizePersonName } from '../utils/nameUtils';
 import { computeCrewOverview } from '../utils/overviewUtils';
-import { EXPIRING_THIS_WEEK_DAYS, personOpsStatus } from '../utils/opsStatus';
+import { comparePersonStatus, EXPIRING_THIS_WEEK_DAYS, personOpsStatus } from '../utils/opsStatus';
 import type { ExtractedDocumentData } from '../models/Document';
 
 export const upsertCrewMember = async (
@@ -38,6 +40,11 @@ export const linkDocumentToCrewMember = async (
   return crew;
 };
 
+const extractionOf = (extraction: unknown): ExtractedDocumentData | undefined =>
+  extraction && typeof extraction === 'object' && !Array.isArray(extraction)
+    ? (extraction as ExtractedDocumentData)
+    : undefined;
+
 export const listCrewForProject = async (
   userId: string,
   projectId: number,
@@ -70,56 +77,57 @@ export const listCrewForProject = async (
     {
       id: string | null;
       name: string;
-      email: string | null;
+      kind: HolderKind;
       documents: typeof formatted;
     }
   >();
 
-  const ensureGroup = (
-    key: string,
-    name: string,
-    id: string | null,
-    email: string | null,
-  ) => {
-    const existing = grouped.get(key);
-    if (existing) {
-      return existing;
-    }
-    const created = { id, name, email, documents: [] as typeof formatted };
-    grouped.set(key, created);
-    return created;
-  };
-
   for (const doc of formatted) {
+    const extraction = extractionOf(doc.extraction);
     const linked = doc.crewMemberId ? membersById.get(doc.crewMemberId) : undefined;
-    const holderName = displayPersonName(
-      doc.extraction && typeof doc.extraction === 'object' && !Array.isArray(doc.extraction)
-        ? (doc.extraction as ExtractedDocumentData).holderName
-        : undefined,
-    );
+    const holderName = displayPersonName(extraction?.holderName);
     const nameKey = linked?.nameNormalized ?? normalizePersonName(holderName);
     const member = linked ?? membersByName.get(nameKey);
-    const group = ensureGroup(
-      nameKey,
-      member?.name ?? holderName,
-      member?.id ?? null,
-      member?.email ?? null,
-    );
-    group.documents.push(doc);
+    const kind = classifyHolder({ docType: extraction?.docType, holderName });
+    const key = `${kind}:${nameKey}`;
+
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.documents.push(doc);
+      continue;
+    }
+    grouped.set(key, {
+      id: member?.id ?? null,
+      name: member?.name ?? holderName,
+      kind,
+      documents: [doc],
+    });
   }
 
+  /** Soonest expiry first, so the document you have to chase is at the top. */
+  const byUrgency = (a: (typeof formatted)[number], b: (typeof formatted)[number]) => {
+    const aDays = daysUntilExpiry(extractionOf(a.extraction)?.expiryDate) ?? 99999;
+    const bDays = daysUntilExpiry(extractionOf(b.extraction)?.expiryDate) ?? 99999;
+    return aDays - bDays;
+  };
+
   const crew = [...grouped.values()]
-    .map(group => ({
-      id: group.id,
-      name: group.name,
-      email: group.email,
-      status: personOpsStatus(group.documents, expiringWithinDays),
-      documents: group.documents,
-    }))
-    .sort((a, b) => {
-      const rank = ['expired', 'needs_human', 'expiring', 'processing', 'failed', 'valid'];
-      return rank.indexOf(a.status) - rank.indexOf(b.status) || a.name.localeCompare(b.name);
-    });
+    .map(group => {
+      const documents = [...group.documents].sort(byUrgency);
+      const soonest = daysUntilExpiry(extractionOf(documents[0]?.extraction)?.expiryDate);
+      return {
+        id: group.id,
+        name: group.name,
+        kind: group.kind,
+        status: personOpsStatus(documents, expiringWithinDays),
+        nextExpiryDate: extractionOf(documents[0]?.extraction)?.expiryDate ?? null,
+        daysUntilNextExpiry: soonest ?? null,
+        documents,
+      };
+    })
+    .sort(
+      (a, b) => comparePersonStatus(a.status, b.status) || a.name.localeCompare(b.name),
+    );
 
   const overview = computeCrewOverview(formatted, expiringWithinDays);
 
@@ -134,21 +142,4 @@ export const getCrewMemberForUser = async (crewMemberId: string, userId: string)
     throw new HttpError(404, 'Crew member not found');
   }
   return member;
-};
-
-export const updateCrewMemberEmail = async (
-  crewMemberId: string,
-  userId: string,
-  email: string | null,
-) => {
-  await getCrewMemberForUser(crewMemberId, userId);
-  const trimmed = email?.trim() || null;
-  if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-    throw new HttpError(400, 'Invalid email address');
-  }
-
-  return prisma.crewMember.update({
-    where: { id: crewMemberId },
-    data: { email: trimmed },
-  });
 };

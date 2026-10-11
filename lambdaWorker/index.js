@@ -90,15 +90,17 @@ exports.handler = async (event) => {
       // Uses your Env Var for model, defaults to 1.5-flash if missing
       const modelId = process.env.GEMINI_MODEL_ID || "gemini-2.5-flash";
       console.log(`Using Gemini Model: ${modelId}`);
-      // Keep in sync with src/services/compliance/extractionPrompt.ts (compliance-eval-v2).
+      // Keep in sync with src/services/compliance/extractionPrompt.ts (compliance-eval-v3).
 
       const prompt = `
         You are a strict Compliance Officer. Analyze this document.
         Task:
         1. Evaluate compliance first:
-           - decision: exactly "clear", "flagged", or "uncertain" (not "compliant", "pass", or "approved")
-           - risk: exactly "low", "medium", or "high" (expired high-risk work licences and expired insurance are high)
-           - confidence: a JSON number from 0 to 1 (not a percentage and not a string)
+           - decision: exactly "clear", "flagged", or "uncertain" (not "compliant", "pass", "approved", or a document title)
+           - "High Risk Work Licence" is a document class, not a decision or a risk rating.
+             A valid, unexpired licence/card with a visible holder, number, and expiry is decision "clear" and risk "low".
+           - risk: exactly "low", "medium", or "high". Use "high" only for expired high-risk work licences, expired insurance, or another serious defect.
+           - confidence: a JSON number from 0 to 1 for how sure you are about the extracted fields (not a percentage and not a string)
            - issueType: "expired_certification", "expired_insurance", "missing_information", "contradictory_dates", "ambiguous", or null if clear
            - explanation: a short non-empty reason for the decision. Always include this field.
            - evidence: array of { "quote": string, "page": number } quotes from the document that support the decision

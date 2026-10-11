@@ -29,7 +29,7 @@ describe('collapseDuplicateDocuments', () => {
     expect(collapseDuplicateDocuments(docs).map(doc => doc.id)).toEqual(['a']);
   });
 
-  it('keeps a renewed ticket with a new expiry', () => {
+  it('keeps a renewed document with a new expiry', () => {
     const docs = [
       {
         id: 'renewed',

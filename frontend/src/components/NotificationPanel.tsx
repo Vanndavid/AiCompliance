@@ -78,7 +78,7 @@ export const NotificationPanel = ({ notifications, onRead, onReminded }: Props) 
                     disabled={busyId === notif.id}
                     onClick={() => void remind(notif)}
                   >
-                    {busyId === notif.id ? 'Sending…' : 'Remind'}
+                    {busyId === notif.id ? 'Sending…' : 'Remind me'}
                   </Button>
                 </Stack>
               }
@@ -88,7 +88,7 @@ export const NotificationPanel = ({ notifications, onRead, onReminded }: Props) 
       </List>
       <Box mt={1}>
         <Typography variant="caption" color="text.secondary">
-          Remind sends email to the worker if you have their address, otherwise to you.
+          Reminders go to your account email with the name, document and expiry date to chase.
         </Typography>
       </Box>
     </Paper>

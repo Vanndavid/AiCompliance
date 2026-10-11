@@ -132,6 +132,19 @@ const parseDecision = (value: unknown): LlmDecision => {
   return DECISION_ALIASES[normalizeEnumKey(value)] ?? DEFAULT_DECISION;
 };
 
+const decisionDefaultNote = (value: unknown): string | null => {
+  if (value == null || (typeof value === 'string' && !value.trim())) {
+    return 'Model omitted a compliance decision, so this was treated as uncertain.';
+  }
+  if (typeof value !== 'string') {
+    return 'Model returned an unrecognised compliance decision, so this was treated as uncertain.';
+  }
+  if (DECISION_ALIASES[normalizeEnumKey(value)]) {
+    return null;
+  }
+  return `Model returned an unrecognised compliance decision ("${value.trim()}"), so this was treated as uncertain.`;
+};
+
 const parseRisk = (value: unknown): RiskLevel => {
   if (typeof value !== 'string' || !value.trim()) {
     return DEFAULT_RISK;
@@ -298,7 +311,9 @@ export const parseLlmEvaluation = (input: unknown): ParsedLlmEvaluation => {
 
   const issueType = asTrimmedString(record.issueType);
   const evidence = parseEvidence(record.evidence);
-  const explanation =
+  const rawDecision = record.decision ?? record.llmDecision;
+  const llmDecision = parseDecision(rawDecision);
+  const baseExplanation =
     optionalMappedString(
       record.explanation,
       record.reason,
@@ -308,10 +323,12 @@ export const parseLlmEvaluation = (input: unknown): ParsedLlmEvaluation => {
       record.comment,
       record.notes,
     ) ?? fallbackExplanation(extraction, evidence);
+  const defaultNote = decisionDefaultNote(rawDecision);
+  const explanation = defaultNote ? `${defaultNote} ${baseExplanation}` : baseExplanation;
 
   return {
     extraction,
-    llmDecision: parseDecision(record.decision ?? record.llmDecision),
+    llmDecision,
     risk: parseRisk(record.risk),
     confidence,
     issueType,

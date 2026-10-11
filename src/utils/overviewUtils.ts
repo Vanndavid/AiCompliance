@@ -1,5 +1,6 @@
 import { daysUntilExpiry } from './dateUtils';
 import { collapseDuplicateDocuments, type DedupeDocumentInput } from './documentDedupe';
+import { classifyHolder, type HolderKind } from './holderKind';
 import { displayPersonName, normalizePersonName } from './nameUtils';
 import {
   EXPIRING_THIS_WEEK_DAYS,
@@ -13,17 +14,23 @@ export type OverviewDocument = DedupeDocumentInput & OpsStatusInput & {
 };
 
 export type CrewOverviewTotals = {
+  blocked: number;
   expired: number;
+  notCompliant: number;
   expiringSoon: number;
-  siteReady: number;
+  allValid: number;
   needsHuman: number;
   processing: number;
   failed: number;
   people: number;
+  organisations: number;
   documents: number;
 };
 
-const fieldOf = (extraction: unknown, key: 'holderName' | 'expiryDate' | 'licenseNumber') => {
+const fieldOf = (
+  extraction: unknown,
+  key: 'holderName' | 'expiryDate' | 'licenseNumber' | 'docType',
+) => {
   if (!extraction || typeof extraction !== 'object' || Array.isArray(extraction)) {
     return undefined;
   }
@@ -43,17 +50,27 @@ const soonestExpiry = (docs: OverviewDocument[]) => {
   return best;
 };
 
-export const groupDocumentsByHolder = (docs: OverviewDocument[]) => {
-  const groups = new Map<string, { name: string; documents: OverviewDocument[] }>();
+export type HolderGroup = {
+  name: string;
+  kind: HolderKind;
+  documents: OverviewDocument[];
+};
+
+export const groupDocumentsByHolder = (docs: OverviewDocument[]): HolderGroup[] => {
+  const groups = new Map<string, HolderGroup>();
 
   for (const doc of docs) {
     const name = displayPersonName(fieldOf(doc.extraction, 'holderName'));
-    const key = normalizePersonName(name);
+    const kind = classifyHolder({
+      docType: fieldOf(doc.extraction, 'docType'),
+      holderName: name,
+    });
+    const key = `${kind}:${normalizePersonName(name)}`;
     const existing = groups.get(key);
     if (existing) {
       existing.documents.push(doc);
     } else {
-      groups.set(key, { name, documents: [doc] });
+      groups.set(key, { name, kind, documents: [doc] });
     }
   }
 
@@ -65,47 +82,54 @@ export const computeCrewOverview = (
   expiringWithinDays = EXPIRING_THIS_WEEK_DAYS,
 ) => {
   const uniqueDocs = collapseDuplicateDocuments(docs);
-  const people = groupDocumentsByHolder(uniqueDocs).map(group => {
+  const holders = groupDocumentsByHolder(uniqueDocs).map(group => {
     const status = personOpsStatus(group.documents, expiringWithinDays);
     const expiry = soonestExpiry(group.documents);
-    const person: {
+    const holder: {
       name: string;
+      kind: HolderKind;
       status: OpsStatus;
       daysUntilExpiry: number | null;
       soonestExpiryDate?: string;
     } = {
       name: group.name,
+      kind: group.kind,
       status,
       daysUntilExpiry: expiry?.days ?? null,
     };
     if (expiry?.expiryDate) {
-      person.soonestExpiryDate = expiry.expiryDate;
+      holder.soonestExpiryDate = expiry.expiryDate;
     }
-    return person;
+    return holder;
   });
 
   const totals: CrewOverviewTotals = {
+    blocked: 0,
     expired: 0,
+    notCompliant: 0,
     expiringSoon: 0,
-    siteReady: 0,
+    allValid: 0,
     needsHuman: 0,
     processing: 0,
     failed: 0,
-    people: people.length,
+    people: holders.filter(holder => holder.kind === 'person').length,
+    organisations: holders.filter(holder => holder.kind === 'organisation').length,
     documents: uniqueDocs.length,
   };
 
-  for (const person of people) {
-    if (person.status === 'expired') totals.expired += 1;
-    else if (person.status === 'expiring') totals.expiringSoon += 1;
-    else if (person.status === 'valid') totals.siteReady += 1;
-    else if (person.status === 'needs_human') totals.needsHuman += 1;
-    else if (person.status === 'processing') totals.processing += 1;
-    else if (person.status === 'failed') totals.failed += 1;
+  for (const holder of holders) {
+    if (holder.status === 'expired') totals.expired += 1;
+    else if (holder.status === 'not_compliant') totals.notCompliant += 1;
+    else if (holder.status === 'expiring') totals.expiringSoon += 1;
+    else if (holder.status === 'valid') totals.allValid += 1;
+    else if (holder.status === 'needs_human') totals.needsHuman += 1;
+    else if (holder.status === 'processing') totals.processing += 1;
+    else if (holder.status === 'failed') totals.failed += 1;
   }
+  totals.blocked = totals.expired + totals.notCompliant;
 
-  const atRisk = people
-    .filter(person => person.status === 'expired' || person.status === 'expiring')
+  const atRisk = holders
+    .filter(holder => holder.status === 'expired' || holder.status === 'expiring')
     .sort((a, b) => (a.daysUntilExpiry ?? 9999) - (b.daysUntilExpiry ?? 9999));
 
   return {
@@ -113,35 +137,5 @@ export const computeCrewOverview = (
     filters: { expiringWithinDays },
     totals,
     atRisk,
-  };
-};
-
-/** @deprecated Prefer computeCrewOverview. Kept for callers that still count files. */
-export const computeDocumentOverview = (
-  docs: Array<{ id: string; originalName: string; status: string; extractedData: any }>,
-  expiringWithinDays: number,
-  limit: number,
-) => {
-  const mapped: OverviewDocument[] = docs.map(doc => ({
-    id: doc.id,
-    name: doc.originalName,
-    originalName: doc.originalName,
-    status: doc.status,
-    extraction: {
-      expiryDate: doc.extractedData?.expiryDate,
-      holderName: doc.extractedData?.holderName,
-      licenseNumber: doc.extractedData?.licenseNumber,
-    },
-  }));
-
-  const overview = computeCrewOverview(mapped, expiringWithinDays);
-  return {
-    ...overview,
-    expiringDocuments: overview.atRisk.slice(0, limit).map(person => ({
-      name: person.name,
-      expiryDate: person.soonestExpiryDate,
-      daysUntilExpiry: person.daysUntilExpiry,
-      status: person.status,
-    })),
   };
 };

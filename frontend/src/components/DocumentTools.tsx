@@ -36,7 +36,7 @@ export const DocumentTools = ({
     </AccordionSummary>
     <AccordionDetails>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Optional tools. The list above is the source of truth for who is site-ready.
+        Optional tools. The list above is the source of truth for who can work.
       </Typography>
       <Stack spacing={2}>
         <TextField
