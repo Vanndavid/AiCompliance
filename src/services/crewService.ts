@@ -3,7 +3,6 @@ import { daysUntilExpiry } from '../utils/dateUtils';
 import { collapseDuplicateDocuments } from '../utils/documentDedupe';
 import { formatDocumentListItem } from '../utils/documentFormatter';
 import { classifyHolder, type HolderKind } from '../utils/holderKind';
-import { HttpError } from '../utils/httpError';
 import { displayPersonName, normalizePersonName } from '../utils/nameUtils';
 import { computeCrewOverview } from '../utils/overviewUtils';
 import { comparePersonStatus, EXPIRING_THIS_WEEK_DAYS, personOpsStatus } from '../utils/opsStatus';
@@ -24,20 +23,6 @@ export const upsertCrewMember = async (
     update: { name },
     create: { userId, projectId, name, nameNormalized },
   });
-};
-
-export const linkDocumentToCrewMember = async (
-  documentId: string,
-  userId: string,
-  projectId: number,
-  holderName?: string | null,
-) => {
-  const crew = await upsertCrewMember(userId, projectId, holderName);
-  await prisma.document.update({
-    where: { id: documentId },
-    data: { crewMemberId: crew.id },
-  });
-  return crew;
 };
 
 const extractionOf = (extraction: unknown): ExtractedDocumentData | undefined =>
@@ -132,14 +117,4 @@ export const listCrewForProject = async (
   const overview = computeCrewOverview(formatted, expiringWithinDays);
 
   return { overview, crew };
-};
-
-export const getCrewMemberForUser = async (crewMemberId: string, userId: string) => {
-  const member = await prisma.crewMember.findFirst({
-    where: { id: crewMemberId, userId },
-  });
-  if (!member) {
-    throw new HttpError(404, 'Crew member not found');
-  }
-  return member;
 };

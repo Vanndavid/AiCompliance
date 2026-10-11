@@ -31,7 +31,7 @@ own documents, with a citation back to the source document and page.
 
 | Stage | Where | What happens |
 | --- | --- | --- |
-| Extract | `services/geminiService.ts`, `lambdaWorker/index.js` | Vision pass returns the structured fields **and** a verbatim per-page transcription in `extractedData.pages`. |
+| Extract | `lambdaWorker/index.js` | Vision pass returns the structured fields **and** a verbatim per-page transcription in `extractedData.pages`. |
 | Chunk | `utils/chunker.ts` | ~500-token windows with ~50-token overlap. Chunks never span a page boundary. |
 | Embed | `services/embeddingService.ts` | `gemini-embedding-001`, truncated to 768 dimensions and renormalised. |
 | Store | `DocumentChunk` table | Vector in a pgvector column, keyword index in a generated `tsvector`. |

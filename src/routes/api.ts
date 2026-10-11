@@ -1,10 +1,8 @@
 import { Router } from 'express';
-import { upload } from '../middleware/upload';
-// import upload from "../config/s3uploader"
 import { login, logout, me, refresh, register } from '../controllers/authController';
 import { createCheckoutSession } from '../controllers/billingController';
 import { createProjectHandler, getProjects } from '../controllers/projectController';
-import { checkHealth, getDocumentStatus, getAllDocuments, getDocumentOverview, uploadDocument, getNotifications, markAsRead, remindFromNotification, downloadDocument, searchDocuments, updateDocumentProcessingResult, createDocumentUploadUrl, completeDocumentUpload, deleteDocument } from '../controllers/documentController';
+import { checkHealth, getDocumentStatus, getAllDocuments, getDocumentOverview, getNotifications, markAsRead, remindFromNotification, downloadDocument, searchDocuments, updateDocumentProcessingResult, createDocumentUploadUrl, completeDocumentUpload, deleteDocument } from '../controllers/documentController';
 import { getCrew, remindCrewMember } from '../controllers/crewController';
 import { askQuestion } from '../controllers/ragController';
 import { getPendingReviews, reviewDocument } from '../controllers/reviewController';
@@ -26,7 +24,6 @@ router.get('/projects', requireAuth, getProjects);
 router.post('/projects', requireAuth, createProjectHandler);
 router.post('/documents/upload-url', requireAuth, uploadRateLimiter, createDocumentUploadUrl);
 router.post('/documents/:id/complete-upload', requireAuth, uploadRateLimiter, completeDocumentUpload);
-router.post('/upload', requireAuth, uploadRateLimiter, upload.single('document'), uploadDocument);
 router.get('/document/:id', requireAuth, getDocumentStatus); 
 router.get('/documents', requireAuth, getAllDocuments);
 router.get('/documents/overview', requireAuth, getDocumentOverview);

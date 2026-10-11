@@ -6,7 +6,6 @@ import { isHttpError } from '../utils/httpError';
 import { parsePositiveInt } from '../utils/numberUtils';
 import { getObjectHead, generatePresignedDownloadUrl, deleteObject } from '../services/storageService';
 import {
-  createPendingDocumentRecord,
   createUploadIntent,
   findDuplicateDocument,
   getAllDocuments as fetchAllDocumentsService,
@@ -23,71 +22,11 @@ import { formatEvaluation, latestEvaluation } from '../utils/documentFormatter';
 import { EXPIRING_THIS_WEEK_DAYS } from '../utils/opsStatus';
 import { normalizeS3Etag } from '../utils/s3Etag';
 
-type UploadedFileData = {
-  originalname: string;
-  key: string;
-  mimetype: string;
-};
-
 const UPLOADING_DOCUMENT_STATUS = 'uploading';
 
 // GET /api/health
 export const checkHealth = (_req: Request, res: Response) => {
   res.json({ status: 'active', message: 'API is running' });
-};
-
-// POST /api/upload (Async Version - Day 5)
-export const uploadDocument = async (req: Request, res: Response) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
-    return;
-  }
-
-  const fileData = req.file as any;
-  console.log('File uploaded to S3 with key:', fileData);
-  const userId = getRequestUserId(req);
-  const projectId = parsePositiveInt(req.body?.projectId, 0);
-
-  if (!projectId) {
-    res.status(400).json({ error: 'projectId is required' });
-    return;
-  }
-
-  console.log('Fetching documents for user:', userId);
-  console.log(`Received file key: ${fileData.key}`);
-
-  try {
-    const newDoc = await createPendingDocumentRecord(
-      fileData as UploadedFileData,
-      userId,
-      projectId,
-    );
-    res.status(202).json({
-      success: true,
-      message: 'Upload accepted. Processing in background.',
-      file: {
-        id: newDoc.id,
-        originalName: newDoc.originalName,
-        status: 'pending',
-        key: newDoc.storagePath,
-      },
-    });
-  } catch (error) {
-    console.error(error);
-    if (isHttpError(error)) {
-      res.status(error.statusCode).json({
-        success: false,
-        error: error.message,
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Upload Failed',
-      details: (error as Error).message,
-    });
-  }
 };
 
 // POST /api/documents/upload-url

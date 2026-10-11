@@ -12,16 +12,6 @@ export type OpsStatus =
   | 'expiring'
   | 'valid';
 
-export const OPS_STATUS_LABEL: Record<OpsStatus, string> = {
-  processing: 'Processing',
-  failed: 'Failed',
-  expired: 'Expired',
-  not_compliant: 'Not compliant',
-  needs_human: 'Needs your check',
-  expiring: 'Expiring',
-  valid: 'Valid',
-};
-
 /** Worst-first. A person inherits the worst status across their documents. */
 const PERSON_STATUS_PRIORITY: OpsStatus[] = [
   'expired',
@@ -112,5 +102,3 @@ export const personOpsStatus = (
 
 export const comparePersonStatus = (a: OpsStatus, b: OpsStatus) =>
   PERSON_STATUS_PRIORITY.indexOf(a) - PERSON_STATUS_PRIORITY.indexOf(b);
-
-export const opsStatusLabel = (status: OpsStatus) => OPS_STATUS_LABEL[status];

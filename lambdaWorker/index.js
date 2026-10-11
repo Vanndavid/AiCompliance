@@ -1,7 +1,7 @@
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { GoogleGenAI } = require("@google/genai");
 
-// --- 1. SETUP CLIENTS (From geminiService.ts) ---
+// --- 1. SETUP CLIENTS ---
 const s3 = new S3Client({
   region: process.env.AWS_REGION || "ap-southeast-4", // Default to Melbourne
 });
@@ -48,7 +48,7 @@ async function reportProcessingResult(docId, payload) {
   }
 }
 
-// --- 3. HELPER: Download from S3 (From geminiService.ts) ---
+// --- 3. HELPER: Download from S3 ---
 async function getFileFromS3(bucket, key) {
   console.log(`Fetching from S3: ${key}`);
   const command = new GetObjectCommand({ Bucket: bucket, Key: key });
@@ -63,11 +63,11 @@ async function getFileFromS3(bucket, key) {
   });
 }
 
-// --- 4. THE LAMBDA HANDLER (From documentWorker.ts) ---
+// --- 4. THE LAMBDA HANDLER ---
 exports.handler = async (event) => {
   console.log(`Lambda started. Processing ${event.Records.length} records.`);
 
-  // B. Loop through SQS Messages (Replacing the BullMQ 'Worker' loop)
+  // B. Loop through SQS Messages
   for (const record of event.Records) {
     let docId = null;
 
@@ -80,17 +80,20 @@ exports.handler = async (event) => {
 
       console.log(`Processing job: ${docId}`);
 
-      // 2. Download File (Logic from geminiService)
+      // 2. Download File
       // Note: We use the bucket name from ENV, or assume the key is relative
       const bucketName = process.env.AWS_BUCKET_NAME; 
       const fileBuffer = await getFileFromS3(bucketName, key);
       const base64Data = fileBuffer.toString("base64");
 
-      // 3. Configure Model (Logic from geminiService)
-      // Uses your Env Var for model, defaults to 1.5-flash if missing
+      // 3. Configure Model (GEMINI_MODEL_ID, defaults to gemini-2.5-flash)
       const modelId = process.env.GEMINI_MODEL_ID || "gemini-2.5-flash";
       console.log(`Using Gemini Model: ${modelId}`);
-      // Keep in sync with src/services/compliance/extractionPrompt.ts (compliance-eval-v3).
+      // Single Gemini call: structured extraction (for RAG) plus a compliance evaluation.
+      // Evaluation fields come first so a long page transcription cannot push
+      // explanation/decision off the end of the output window.
+      // When you change this prompt, bump EVALUATION_PROMPT_VERSION in
+      // src/services/compliance/extractionPrompt.ts (currently compliance-eval-v3).
 
       const prompt = `
         You are a strict Compliance Officer. Analyze this document.
@@ -120,7 +123,7 @@ exports.handler = async (event) => {
         Structure: { "decision": "clear"|"flagged"|"uncertain", "risk": "low"|"medium"|"high", "confidence": number, "issueType": "string|null", "explanation": "string", "evidence": [{ "quote": "string", "page": number }], "type": "string", "expiryDate": "string|null", "issueDate": "string|null", "licenseNumber": "string|null", "name": "string", "content": "string", "pages": [{ "page": number, "text": "string" }] }
       `;
 
-      // 4. Call AI (Logic from geminiService)
+      // 4. Call AI
       const aiResponse = await ai.models.generateContent({
         model: modelId,
         contents: [{
@@ -137,7 +140,7 @@ exports.handler = async (event) => {
         }
       });
 
-      // 5. Parse Response (Logic from geminiService)
+      // 5. Parse Response
       const parts = aiResponse.candidates && aiResponse.candidates[0] && aiResponse.candidates[0].content
         ? aiResponse.candidates[0].content.parts
         : [];

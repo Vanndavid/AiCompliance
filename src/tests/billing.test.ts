@@ -12,13 +12,6 @@ jest.mock('../services/scheduler', () => ({
   startScheduler: () => mockStartScheduler(),
 }));
 
-jest.mock('../config/s3uploader', () => ({
-  __esModule: true,
-  default: {
-    single: () => (req: unknown, res: unknown, next: () => void) => next(),
-  },
-}));
-
 import app from '../server';
 import { bearerAuthHeader, createTestAccessToken } from './helpers/auth';
 

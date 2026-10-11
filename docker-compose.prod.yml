@@ -1,14 +1,4 @@
 services:
-  # Database
-  # using atlas
-  # mongo:
-  #   image: mongo:6
-  #   container_name: aicompliance_mongo
-  #   restart: always
-  #   volumes:
-  #     - mongo_data:/data/db
-  #   networks: [web]
-
   postgres:
     # pgvector build of Postgres 16 - the base image does not ship the extension,
     # and the DocumentChunk migration creates it.
@@ -29,25 +19,6 @@ services:
       timeout: 5s
       retries: 10
     networks: [web]
-  # Database GUI (View at http://localhost:8081)
-  # mongo-express:
-  #   image: mongo-express
-  #   container_name: aicompliance_gui
-  #   restart: always
-  #   environment:
-  #     ME_CONFIG_MONGODB_SERVER: mongo
-  #     ME_CONFIG_MONGODB_PORT: 27017
-  #   depends_on:
-  #     - mongo
-  #   networks: [web]
-
-  # Queue Service 
-  # replaced by sqs
-  # redis:
-  #   image: redis:alpine
-  #   container_name: aicompliance_redis
-  #   restart: always
-  #   networks: [web]
   # ✅ Backend (DEV mode)
   backend:
     image: node:22-alpine
@@ -63,7 +34,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    #   - redis
     restart: unless-stopped
     # traefik
     networks: [web]
@@ -74,21 +44,6 @@ services:
       - "traefik.http.routers.aicompliance-api.tls=true"
       - "traefik.http.routers.aicompliance-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.aicompliance-api.loadbalancer.server.port=3000"
-  # replaced by lambda worker
-  # worker:
-  #   image: node:22-alpine
-  #   container_name: aicompliance_worker
-  #   working_dir: /app
-  #   volumes:
-  #     - .:/app
-  #   command: npx tsx src/workers/documentWorker.ts
-  #   env_file:
-  #     - .env
-  #   depends_on:
-  #     - redis
-  #     - mongo
-  #   restart: unless-stopped
-  #   networks: [web]
   frontend:
     image: node:22-alpine
     container_name: aicompliance_frontend
